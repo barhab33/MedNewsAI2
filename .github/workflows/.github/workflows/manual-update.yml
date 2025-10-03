@@ -1,0 +1,77 @@
+name: Manual News Update
+
+on:
+  workflow_dispatch:
+    inputs:
+      max_articles:
+        description: 'Maximum articles to fetch'
+        required: false
+        default: '10'
+        type: choice
+        options:
+          - '5'
+          - '10'
+          - '20'
+          - '50'
+
+jobs:
+  manual-update:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Setup environment
+        env:
+          VITE_Bolt Database_URL: ${{ secrets.VITE_Bolt Database_URL }}
+          VITE_Bolt Database_ANON_KEY: ${{ secrets.VITE_Bolt Database_ANON_KEY }}
+          Bolt Database_DB_PASSWORD: ${{ secrets.Bolt Database_DB_PASSWORD }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          echo "VITE_Bolt Database_URL=$VITE_Bolt Database_URL" >> .env
+          echo "VITE_Bolt Database_ANON_KEY=$VITE_Bolt Database_ANON_KEY" >> .env
+          echo "Bolt Database_DB_PASSWORD=$Bolt Database_DB_PASSWORD" >> .env
+          echo "GROQ_API_KEY=$GROQ_API_KEY" >> .env
+          echo "GEMINI_API_KEY=$GEMINI_API_KEY" >> .env
+
+      - name: Run news crawler
+        run: |
+          echo "🔍 Fetching up to ${{ github.event.inputs.max_articles }} articles..."
+          node crawl-multi-ai.cjs
+
+      - name: Export data
+        run: node export-to-public.cjs
+
+      - name: Assign unique images
+        run: node assign-unique-images.cjs
+
+      - name: Export again with images
+        run: node export-to-public.cjs
+
+      - name: Build site
+        run: npm run build
+
+      - name: Commit changes
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add public/news-data.json
+          git diff --quiet && git diff --staged --quiet || \
+            (git commit -m "🎯 Manual update: ${{ github.event.inputs.max_articles }} articles - $(date +'%Y-%m-%d %H:%M UTC')" && git push)
+
+      - name: Summary
+        run: |
+          echo "✅ News update complete!"
+          echo "📊 Articles processed: ${{ github.event.inputs.max_articles }}"
+          echo "🚀 Changes pushed to repository"

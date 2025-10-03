@@ -1,0 +1,19 @@
+# Medical AI News - Automatic Updates Every 5 Hours
+#
+# Add this line to your crontab (run: crontab -e)
+# Replace /path/to/project with your actual project path
+
+0 */5 * * * cd /path/to/project && /usr/bin/node run-update.cjs >> logs/updates.log 2>&1
+
+# This will run at:
+# - 00:00 (midnight)
+# - 05:00 (5 AM)
+# - 10:00 (10 AM)
+# - 15:00 (3 PM)
+# - 20:00 (8 PM)
+
+# To verify it's installed:
+#   crontab -l
+
+# To view logs:
+#   tail -f logs/updates.log
