@@ -42,15 +42,15 @@ jobs:
           echo "CI=$CI"
           echo "GITHUB_ACTIONS=$GITHUB_ACTIONS"
           echo "Checking secrets..."
-          [ -n "$SUPABASE_DB_PASSWORD" ] && echo "SUPABASE_DB_PASSWORD is set" || echo "SUPABASE_DB_PASSWORD is NOT set"
+          [ -n "$Bolt Database_DB_PASSWORD" ] && echo "Bolt Database_DB_PASSWORD is set" || echo "Bolt Database_DB_PASSWORD is NOT set"
         env:
-          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          Bolt Database_DB_PASSWORD: ${{ secrets.Database_DB_PASSWORD }}
 
       - name: Run news crawler
         env:
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
-          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          VITE_Bolt Database_URL: ${{ secrets.VITE_Bolt Database_URL }}
+          VITE_Bolt Database_ANON_KEY: ${{ secrets.VITE_Bolt Database_ANON_KEY }}
+          Bolt Database_DB_PASSWORD: ${{ secrets.Database_DB_PASSWORD }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
@@ -59,20 +59,20 @@ jobs:
 
       - name: Export data
         env:
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_Bolt Database_URL: ${{ secrets.VITE_Bolt Database_URL }}
+          VITE_Bolt Database_ANON_KEY: ${{ secrets.VITE_Bolt Database_ANON_KEY }}
         run: node export-to-public.cjs
 
       - name: Assign unique images
         env:
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_Bolt Database_URL: ${{ secrets.VITE_Bolt Database_URL }}
+          VITE_Bolt Database_ANON_KEY: ${{ secrets.VITE_Bolt Database_ANON_KEY }}
         run: node assign-unique-images.cjs
 
       - name: Export again with images
         env:
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_Bolt Database_URL: ${{ secrets.VITE_Bolt Database_URL }}
+          VITE_Bolt Database_ANON_KEY: ${{ secrets.VITE_Bolt Database_ANON_KEY }}
         run: node export-to-public.cjs
 
       - name: Build site
