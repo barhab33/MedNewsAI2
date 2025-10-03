@@ -1,5 +1,7 @@
-// Only load dotenv if not in CI and the module exists
-if (!process.env.CI && !process.env.GITHUB_ACTIONS) {
+// Explicitly skip dotenv in CI - it should never run in GitHub Actions
+if (process.env.CI || process.env.GITHUB_ACTIONS) {
+  console.log('Running in CI, skipping dotenv');
+} else {
   try {
     require('dotenv').config();
   } catch (e) {

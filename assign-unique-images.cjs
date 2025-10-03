@@ -1,7 +1,10 @@
-try {
-  require('dotenv').config();
-} catch (e) {
-  // dotenv not available in CI, using env vars directly
+// Skip dotenv in CI environments - use environment variables directly
+if (!process.env.CI && !process.env.GITHUB_ACTIONS) {
+  try {
+    require('dotenv').config();
+  } catch (e) {
+    // dotenv not available
+  }
 }
 const { Client } = require('pg');
 
