@@ -10,11 +10,17 @@ if (!process.env.CI && !process.env.GITHUB_ACTIONS) {
 function getDbConfig() {
   const password = process.env.SUPABASE_DB_PASSWORD || process.env.DB_PASSWORD;
 
-  if (!password) {
+  console.log('Debug - Password type:', typeof password);
+  console.log('Debug - Password undefined?:', password === undefined);
+  console.log('Debug - Password empty string?:', password === '');
+  console.log('Debug - Password length:', password ? password.length : 'N/A');
+  console.log('Debug - Password truthy?:', !!password);
+
+  if (!password || (typeof password === 'string' && password.trim() === '')) {
     console.error('CI:', process.env.CI);
     console.error('GITHUB_ACTIONS:', process.env.GITHUB_ACTIONS);
     console.error('All SUPABASE/DB env vars:', Object.keys(process.env).filter(k => k.includes('SUPABASE') || k.includes('DB')));
-    throw new Error('Database password not found. Please set SUPABASE_DB_PASSWORD environment variable.');
+    throw new Error('Database password not found or empty. Please check SUPABASE_DB_PASSWORD in GitHub Secrets.');
   }
 
   return {
