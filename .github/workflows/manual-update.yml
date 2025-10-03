@@ -44,13 +44,13 @@ jobs:
           echo "Checking secrets..."
           [ -n "$Bolt Database_DB_PASSWORD" ] && echo "Bolt Database_DB_PASSWORD is set" || echo "Bolt Database_DB_PASSWORD is NOT set"
         env:
-          Bolt Database_DB_PASSWORD: ${{ secrets.Database_DB_PASSWORD }}
+          Bolt Database_DB_PASSWORD: ${{ secrets.DATABASE_DB_PASSWORD }}
 
       - name: Run news crawler
         env:
           VITE_Bolt Database_URL: ${{ secrets.VITE_Bolt Database_URL }}
           VITE_Bolt Database_ANON_KEY: ${{ secrets.VITE_Bolt Database_ANON_KEY }}
-          Bolt Database_DB_PASSWORD: ${{ secrets.Database_DB_PASSWORD }}
+          Bolt Database_DB_PASSWORD: ${{ secrets.DATABASE_DB_PASSWORD }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
