@@ -1,12 +1,12 @@
-// Bolt Database-based crawler for medical news
+// Supabase-based crawler for medical news
 require('dotenv').config();
 const axios = require('axios');
 const cheerio = require('cheerio');
-const { createClient } = require('@supabase/Bolt Database-js');
+const { createClient } = require('@supabase/supabase-js');
 
-const Bolt Database = createClient(
-  process.env.VITE_Bolt Database_URL,
-  process.env.VITE_Bolt Database_SERVICE_ROLE_KEY
+const supabase = createClient(
+  process.env.VITE_SUPABASE_URL,
+  process.env.VITE_SUPABASE_SERVICE_ROLE_KEY
 );
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
@@ -220,7 +220,7 @@ async function crawlSource(source) {
     
     for (const article of articles.slice(0, 5)) {
       try {
-        const { data: existing } = await Bolt Database
+        const { data: existing } = await supabase
           .from('medical_news')
           .select('id')
           .eq('url', article.url)
@@ -235,7 +235,7 @@ async function crawlSource(source) {
         const category = categorizeArticle(article.title, fullContent);
         const summaries = await generateMultiLLMSummaries(article.title, fullContent);
         
-        const { error } = await Bolt Database
+        const { error } = await supabase
           .from('medical_news')
           .insert({
             title: article.title,
@@ -269,12 +269,12 @@ async function crawlSource(source) {
 async function cleanOldArticles() {
   const thirtyDaysAgo = new Date();
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-  
-  const { error } = await Bolt Database
+
+  const { error } = await supabase
     .from('medical_news')
     .delete()
     .lt('published_at', thirtyDaysAgo.toISOString());
-  
+
   if (error) {
     console.error('Error cleaning old articles:', error.message);
   } else {
@@ -297,10 +297,10 @@ async function main() {
     await new Promise(resolve => setTimeout(resolve, 2000));
   }
   
-  const { count } = await Bolt Database
+  const { count } = await supabase
     .from('medical_news')
     .select('*', { count: 'exact', head: true });
-  
+
   console.log(`\n✓ Crawling complete! Total articles in database: ${count}`);
 }
 
