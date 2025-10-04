@@ -16,15 +16,15 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: '18'
+          node-version: '20'
       
       - name: Install dependencies
         run: npm ci
       
       - name: Run crawler
         env:
-          VITE_Bolt Database_URL: ${{ secrets.VITE_Bolt Database_URL }}
-          VITE_Bolt Database_SERVICE_ROLE_KEY: ${{ secrets.VITE_Bolt Database_SERVICE_ROLE_KEY }}
+          VITE_BOLTDATABASE_URL: ${{ secrets.VITE_BOLTDATABASE_URL }}
+          VITE_BOLTDATABASE_ANON_KEY: ${{ secrets.VITE_BOLTDATABASE_ANON_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
