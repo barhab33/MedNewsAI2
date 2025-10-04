@@ -1,4 +1,4 @@
-// Skip dotenv in CI environments - use environment variables directly
+// Assign images using Supabase client - no password needed!
 if (!process.env.CI && !process.env.GITHUB_ACTIONS) {
   try {
     require('dotenv').config();
@@ -6,16 +6,18 @@ if (!process.env.CI && !process.env.GITHUB_ACTIONS) {
     // dotenv not available
   }
 }
-const { Client } = require('pg');
 
-const client = new Client({
-  host: 'db.qhyrfjletazbsjsfosdl.supabase.co',
-  port: 5432,
-  user: 'postgres',
-  password: '8ZKt+2D2_2s4fyE',
-  database: 'postgres',
-  ssl: { rejectUnauthorized: false }
-});
+const { createClient } = require('@supabase/supabase-js');
+
+const supabaseUrl = process.env.VITE_SUPABASE_URL;
+const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY;
+
+if (!supabaseUrl || !supabaseKey) {
+  console.error('Missing Supabase credentials!');
+  process.exit(1);
+}
+
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 const UNIQUE_MEDICAL_IMAGES = [
   'https://images.pexels.com/photos/3825517/pexels-photo-3825517.jpeg?auto=compress&cs=tinysrgb&w=800',
@@ -97,14 +99,15 @@ function shuffleArray(array) {
 async function main() {
   console.log('🎨 Assigning Unique Images to All Articles\n');
 
-  await client.connect();
-  console.log('✓ Connected to database\n');
+  const { data: articles, error } = await supabase
+    .from('medical_news')
+    .select('id, title')
+    .order('published_at', { ascending: false });
 
-  const { rows: articles } = await client.query(`
-    SELECT id, title
-    FROM medical_news
-    ORDER BY published_at DESC
-  `);
+  if (error) {
+    console.error('❌ Error:', error.message);
+    process.exit(1);
+  }
 
   console.log(`📊 Found ${articles.length} articles\n`);
 
@@ -120,37 +123,19 @@ async function main() {
     const article = articles[i];
     const imageUrl = shuffledImages[i % shuffledImages.length];
 
-    await client.query(
-      `UPDATE medical_news SET image_url = $1 WHERE id = $2`,
-      [imageUrl, article.id]
-    );
+    const { error: updateError } = await supabase
+      .from('medical_news')
+      .update({ image_url: imageUrl })
+      .eq('id', article.id);
 
-    console.log(`${i + 1}. ${article.title.substring(0, 60)}...`);
-    console.log(`   → ${imageUrl.split('/')[5].substring(0, 30)}`);
-    updated++;
+    if (!updateError) {
+      console.log(`${i + 1}. ${article.title.substring(0, 60)}...`);
+      console.log(`   → ${imageUrl.split('/')[5].substring(0, 30)}`);
+      updated++;
+    }
   }
 
   console.log(`\n✅ Done! Updated ${updated} articles with unique images`);
-
-  const { rows: dupeCheck } = await client.query(`
-    SELECT image_url, COUNT(*) as count
-    FROM medical_news
-    GROUP BY image_url
-    HAVING COUNT(*) > 1
-    ORDER BY count DESC
-    LIMIT 5
-  `);
-
-  if (dupeCheck.length > 0) {
-    console.log(`\n📊 Remaining duplicates (if any):`);
-    dupeCheck.forEach(row => {
-      console.log(`   ${row.image_url.split('/')[5]}: ${row.count} times`);
-    });
-  } else {
-    console.log(`\n✓ No duplicate images found!`);
-  }
-
-  await client.end();
 }
 
 main().catch(console.error);

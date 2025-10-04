@@ -1,26 +1,41 @@
-const { Client } = require('pg');
+// Export using Supabase client - no password needed!
+if (!process.env.CI && !process.env.GITHUB_ACTIONS) {
+  try {
+    require('dotenv').config();
+  } catch (e) {
+    // dotenv not available
+  }
+}
+
+const { createClient } = require('@supabase/supabase-js');
 const fs = require('fs');
 const path = require('path');
 
-const client = new Client({
-  host: 'db.qhyrfjletazbsjsfosdl.supabase.co',
-  port: 5432,
-  user: 'postgres',
-  password: '8ZKt+2D2_2s4fyE',
-  database: 'postgres',
-  ssl: { rejectUnauthorized: false }
-});
+const supabaseUrl = process.env.VITE_SUPABASE_URL;
+const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY;
+
+if (!supabaseUrl || !supabaseKey) {
+  console.error('Missing Supabase credentials!');
+  process.exit(1);
+}
+
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 async function exportData() {
   try {
-    await client.connect();
-    console.log('✓ Connected to database');
+    console.log('✓ Connecting to Supabase...');
 
-    const result = await client.query(
-      'SELECT * FROM medical_news ORDER BY published_at DESC LIMIT 50'
-    );
+    const { data, error } = await supabase
+      .from('medical_news')
+      .select('*')
+      .order('published_at', { ascending: false })
+      .limit(50);
 
-    console.log(`✓ Found ${result.rows.length} articles`);
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    console.log(`✓ Found ${data.length} articles`);
 
     // Ensure public directory exists
     const publicDir = path.join(__dirname, 'public');
@@ -30,12 +45,10 @@ async function exportData() {
 
     // Write to public/news-data.json
     const filePath = path.join(publicDir, 'news-data.json');
-    fs.writeFileSync(filePath, JSON.stringify(result.rows, null, 2));
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
 
     console.log(`✓ Exported to ${filePath}`);
     console.log('\n✅ Done! Refresh your browser to see the articles.');
-
-    await client.end();
   } catch (error) {
     console.error('❌ Error:', error.message);
     process.exit(1);
