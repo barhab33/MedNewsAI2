@@ -1,93 +1,32 @@
-name: Manual News Update
+name: Manual Update Medical News
 
 on:
-  workflow_dispatch:
-    inputs:
-      max_articles:
-        description: 'Maximum articles to fetch'
-        required: false
-        default: '10'
-        type: choice
-        options:
-          - '5'
-          - '10'
-          - '20'
-          - '50'
+  workflow_dispatch:  # Manual trigger only
 
 jobs:
-  manual-update:
+  update-news:
     runs-on: ubuntu-latest
-
+    
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
-
+        uses: actions/checkout@v3
+      
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v3
         with:
-          node-version: '20'
-          cache: 'npm'
-
+          node-version: '18'
+      
       - name: Install dependencies
         run: npm ci
-
-      - name: Verify code version
-        run: |
-          echo "=== Current db-config.cjs version ==="
-          head -25 db-config.cjs
-          echo "=== End of db-config.cjs snippet ==="
-
-      - name: Debug environment
-        run: |
-          echo "CI=$CI"
-          echo "GITHUB_ACTIONS=$GITHUB_ACTIONS"
-          echo "Checking secrets..."
-          [ -n "$Bolt Database_DB_PASSWORD" ] && echo "Bolt Database_DB_PASSWORD is set" || echo "Bolt Database_DB_PASSWORD is NOT set"
+      
+      - name: Run crawler
         env:
-          Bolt Database_DB_PASSWORD: ${{ secrets.DATABASE_DB_PASSWORD }}
-
-      - name: Run news crawler
-        env:
-          VITE_Bolt Database_URL: ${{ secrets.VITE_BoltDatabase_URL }}
-          VITE_Bolt Database_ANON_KEY: ${{ secrets.VITE_BoltDatabase_ANON_KEY }}
-          Bolt Database_DB_PASSWORD: ${{ secrets.DATABASE_DB_PASSWORD }}
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: |
-          echo "🔍 Fetching up to ${{ github.event.inputs.max_articles }} articles..."
-          node crawl-multi-ai.cjs
-
-      - name: Export data
-        env:
-          VITE_Bolt Database_URL: ${{ secrets.VITE_BoltDatabase_URL }}
-          VITE_Bolt Database_ANON_KEY: ${{ secrets.VITE_BoltDatabase_ANON_KEY }}
-        run: node export-to-public.cjs
-
-      - name: Assign unique images
-        env:
-          VITE_Bolt Database_URL: ${{ secrets.VITE_BoltDatabase_URL }}
-          VITE_Bolt Database_ANON_KEY: ${{ secrets.VITE_BoltDatabase_ANON_KEY }}
-        run: node assign-unique-images.cjs
-
-      - name: Export again with images
-        env:
-          VITE_Bolt Database_URL: ${{ secrets.VITE_BoltDatabase_URL }}
-          VITE_Bolt Database_ANON_KEY: ${{ secrets.VITE_BoltDatabase_ANON_KEY }}
-        run: node export-to-public.cjs
-
-      - name: Build site
-        run: npm run build
-
-      - name: Commit changes
-        run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email 'github-actions[bot]@users.noreply.github.com'
-          git add public/news-data.json
-          git diff --quiet && git diff --staged --quiet || \
-            (git commit -m "🎯 Manual update: ${{ github.event.inputs.max_articles }} articles - $(date +'%Y-%m-%d %H:%M UTC')" && git push)
-
-      - name: Summary
-        run: |
-          echo "✅ News update complete!"
-          echo "📊 Articles processed: ${{ github.event.inputs.max_articles }}"
-          echo "🚀 Changes pushed to repository"
+          VITE_Bolt Database_URL: ${{ secrets.VITE_Bolt Database_URL }}
+          VITE_Bolt Database_SERVICE_ROLE_KEY: ${{ secrets.VITE_Bolt Database_SERVICE_ROLE_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+        run: node crawl-supabase.cjs
+      
+      - name: Report completion
+        run: echo "✓ Manual news update completed successfully"
