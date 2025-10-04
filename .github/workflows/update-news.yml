@@ -23,17 +23,17 @@ jobs:
 
       - name: Setup environment variables
         run: |
-          echo "VITE_SUPABASE_URL=${{ secrets.VITE_SUPABASE_URL }}" >> .env
-          echo "VITE_SUPABASE_ANON_KEY=${{ secrets.VITE_SUPABASE_ANON_KEY }}" >> .env
-          echo "SUPABASE_DB_PASSWORD=${{ secrets.SUPABASE_DB_PASSWORD }}" >> .env
+          echo "VITE_Bolt Database_URL=${{ secrets.VITE_BoltDatabase_URL }}" >> .env
+          echo "VITE_Bolt Database_ANON_KEY=${{ secrets.VITE_BoltDatabase_ANON_KEY }}" >> .env
+          echo "Bolt Database_DB_PASSWORD=${{ secrets.DATABASE_DB_PASSWORD }}" >> .env
           echo "GROQ_API_KEY=${{ secrets.GROQ_API_KEY }}" >> .env
           echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" >> .env
 
       - name: Crawl and generate articles
         env:
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
-          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          VITE_Bolt Database_URL: ${{ secrets.VITE_BoltDatabase_URL }}
+          VITE_Bolt Database_ANON_KEY: ${{ secrets.VITE_BoltDatabase_ANON_KEY }}
+          Bolt Database_DB_PASSWORD: ${{ secrets.DATABASE_DB_PASSWORD }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
@@ -42,24 +42,24 @@ jobs:
 
       - name: Export to public folder
         env:
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_Bolt Database_URL: ${{ secrets.VITE_BoltDatabase_URL }}
+          VITE_Bolt Database_ANON_KEY: ${{ secrets.VITE_BoltDatabase_ANON_KEY }}
         run: |
           node export-to-public.cjs
           echo "✅ Data exported to public/news-data.json"
 
       - name: Assign unique images
         env:
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_Bolt Database_URL: ${{ secrets.VITE_BoltDatabase_URL }}
+          VITE_Bolt Database_ANON_KEY: ${{ secrets.VITE_BoltDatabase_ANON_KEY }}
         run: |
           node assign-unique-images.cjs
           echo "✅ Unique images assigned"
 
       - name: Export again with images
         env:
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_Bolt Database_URL: ${{ secrets.VITE_BoltDatabase_URL }}
+          VITE_Bolt Database_ANON_KEY: ${{ secrets.VITE_BoltDatabase_ANON_KEY }}
         run: node export-to-public.cjs
 
       - name: Build production site
