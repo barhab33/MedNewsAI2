@@ -5,8 +5,8 @@ const cheerio = require('cheerio');
 const { createClient } = require('@supabase/supabase-js');
 
 const supabase = createClient(
-  process.env.VITE_SUPABASE_URL,
-  process.env.VITE_SUPABASE_SERVICE_ROLE_KEY
+  process.env.VITE_BOLTDATABASE_URL,
+  process.env.VITE_BOLTDATABASE_ANON_KEY
 );
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
