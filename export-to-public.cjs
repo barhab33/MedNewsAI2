@@ -1,4 +1,4 @@
-// Export using Bolt Database client - no password needed!
+// Export using Supabase client - no password needed!
 if (!process.env.CI && !process.env.GITHUB_ACTIONS) {
   try {
     require('dotenv').config();
@@ -7,21 +7,21 @@ if (!process.env.CI && !process.env.GITHUB_ACTIONS) {
   }
 }
 
-const { createClient } = require('@supabase/Bolt Database-js');
+const { createClient } = require('@supabase/supabase-js');
 const fs = require('fs');
 const path = require('path');
 
-const Bolt DatabaseUrl = process.env.VITE_BOLTDATABASE_URL;
-const Bolt DatabaseKey = process.env.VITE_BOLTDATABASE_ANON_KEY;
+const supabaseUrl = process.env.VITE_SUPABASE_URL;
+const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY;
 
-if (!Bolt DatabaseUrl || !Bolt DatabaseKey) {
-  console.error('Missing Bolt Database credentials!');
-  console.error('VITE_Bolt Database_URL:', Bolt DatabaseUrl ? 'SET' : 'MISSING');
-  console.error('VITE_Bolt Database_ANON_KEY:', Bolt DatabaseKey ? 'SET' : 'MISSING');
+if (!supabaseUrl || !supabaseKey) {
+  console.error('Missing Supabase credentials!');
+  console.error('VITE_SUPABASE_URL:', supabaseUrl ? 'SET' : 'MISSING');
+  console.error('VITE_SUPABASE_ANON_KEY:', supabaseKey ? 'SET' : 'MISSING');
   process.exit(1);
 }
 
-const Bolt Database = createClient(Bolt DatabaseUrl, Bolt DatabaseKey);
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 async function exportData() {
   try {
