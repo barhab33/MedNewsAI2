@@ -6,27 +6,36 @@ on:
 jobs:
   update-news:
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
-      
+
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
           node-version: '20'
-      
+
       - name: Install dependencies
         run: npm ci
-      
+
       - name: Run crawler
         env:
-          VITE_BOLTDATABASE_URL: ${{ secrets.VITE_BOLTDATABASE_URL }}
-          VITE_BOLTDATABASE_ANON_KEY: ${{ secrets.VITE_BOLTDATABASE_ANON_KEY }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          BOLTDATABASE_DB_PASSWORD: ${{ secrets.BOLTDATABASE_DB_PASSWORD }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: node crawl-multi-ai.cjs
-      
-      - name: Report completion
-        run: echo "✓ Manual news update completed successfully"
+
+      - name: Export to public JSON
+        env:
+          BOLTDATABASE_DB_PASSWORD: ${{ secrets.BOLTDATABASE_DB_PASSWORD }}
+        run: node export-to-public.cjs
+
+      - name: Commit and push updates
+        run: |
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
+          git add public/news-data.json
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Manual update news [skip ci]" && git push)
