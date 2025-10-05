@@ -11,13 +11,13 @@ const { createClient } = require('@supabase/supabase-js');
 const fs = require('fs');
 const path = require('path');
 
-const supabaseUrl = process.env.VITE_SUPABASE_URL;
-const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY;
+const supabaseUrl = process.env.VITE_BOLTDATABASE_URL;
+const supabaseKey = process.env.VITE_BOLTDATABASE_ANON_KEY;
 
 if (!supabaseUrl || !supabaseKey) {
   console.error('Missing Supabase credentials!');
-  console.error('VITE_SUPABASE_URL:', supabaseUrl ? 'SET' : 'MISSING');
-  console.error('VITE_SUPABASE_ANON_KEY:', supabaseKey ? 'SET' : 'MISSING');
+  console.error('VITE_BOLTDATABASE_URL:', supabaseUrl ? 'SET' : 'MISSING');
+  console.error('VITE_BOLTDATABASE_ANON_KEY:', supabaseKey ? 'SET' : 'MISSING');
   process.exit(1);
 }
 
@@ -27,7 +27,7 @@ async function exportData() {
   try {
     console.log('✓ Connecting to Supabase...');
 
-    const { data, error } = await Bolt Database
+    const { data, error } = await supabase
       .from('medical_news')
       .select('*')
       .order('published_at', { ascending: false })
