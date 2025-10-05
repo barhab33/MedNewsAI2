@@ -1,4 +1,4 @@
-// Export using Supabase client - no password needed!
+// Export using database client - no password needed!
 if (!process.env.CI && !process.env.GITHUB_ACTIONS) {
   try {
     require('dotenv').config();
@@ -15,7 +15,7 @@ const supabaseUrl = process.env.VITE_BOLTDATABASE_URL;
 const supabaseKey = process.env.VITE_BOLTDATABASE_ANON_KEY;
 
 if (!supabaseUrl || !supabaseKey) {
-  console.error('Missing Supabase credentials!');
+  console.error('Missing database credentials!');
   console.error('VITE_BOLTDATABASE_URL:', supabaseUrl ? 'SET' : 'MISSING');
   console.error('VITE_BOLTDATABASE_ANON_KEY:', supabaseKey ? 'SET' : 'MISSING');
   process.exit(1);
@@ -25,7 +25,7 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 
 async function exportData() {
   try {
-    console.log('✓ Connecting to Supabase...');
+    console.log('✓ Connecting to database...');
 
     const { data, error } = await supabase
       .from('medical_news')
