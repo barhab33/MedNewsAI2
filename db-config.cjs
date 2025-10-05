@@ -33,7 +33,9 @@ function getDbConfig() {
     database: 'postgres',
     ssl: {
       rejectUnauthorized: false
-    }
+    },
+    // Force IPv4 in CI environments
+    family: process.env.CI || process.env.GITHUB_ACTIONS ? 4 : undefined
   };
 }
 
