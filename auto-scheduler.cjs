@@ -1,11 +1,13 @@
 const https = require('https');
 require('dotenv').config();
 
-const SUPABASE_URL = process.env.VITE_SUPABASE_URL;
-const SUPABASE_ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY;
+const SUPABASE_URL = process.env.VITE_BOLTDATABASE_URL;
+const SUPABASE_ANON_KEY = process.env.VITE_BOLTDATABASE_ANON_KEY;
 
 if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-  console.error('Error: Missing Supabase credentials in .env file');
+  console.error('Error: Missing database credentials in .env file');
+  console.error('VITE_BOLTDATABASE_URL:', SUPABASE_URL ? 'SET' : 'MISSING');
+  console.error('VITE_BOLTDATABASE_ANON_KEY:', SUPABASE_ANON_KEY ? 'SET' : 'MISSING');
   process.exit(1);
 }
 
