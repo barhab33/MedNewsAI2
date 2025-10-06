@@ -1,11 +1,16 @@
 /**
- * Crawl → rank → take top 10 *new* URLs → summarize (Gemini) → image → upsert → prune to 10 newest
+ * scripts/crawl-multi-source.cjs
+ *
+ * Crawl → rank → take top 10 *new* URLs → summarize (Gemini) → image → write
+ * Then: in-code DB de-dup by URL (keep newest), and prune to newest 10.
+ *
+ * No SQL migrations required. Works even if you DON'T have a unique index on (url).
  */
 
 const { sb: supabase } = require("./lib/supabase-server.cjs");
 
 // ------------------ Config ------------------
-// Google News with recency filter (past 24h). Add/remove as you like.
+// Google News with recency filter (past 24h)
 const GN = (q) =>
   `https://news.google.com/rss/search?q=${encodeURIComponent(q + " when:1d")}&hl=en-US&gl=US&ceid=US:en`;
 
@@ -13,13 +18,13 @@ const FEEDS = [
   GN("(medical AI) OR (health AI)"),
   GN("(clinical AI) OR (biomedical AI)"),
   GN("radiology AI OR imaging AI"),
-  GN("FDA AI medical device OR \"machine learning\" device"),
   GN("oncology AI OR cancer AI"),
-  // Publisher feeds (some are journals/newsrooms)
+  GN("FDA AI medical device OR \"machine learning\" device"),
+  // Publisher/journal feeds
   "https://www.nature.com/subjects/medical-ai/rss",
   "https://www.nature.com/subjects/health-informatics/rss",
   "https://www.medrxiv.org/rss.xml",
-  // A few sites (their RSS):
+  // Industry newsrooms
   "https://www.fiercebiotech.com/rss/xml",
   "https://www.fiercepharma.com/rss/xml",
   "https://www.statnews.com/feed/"
@@ -54,6 +59,8 @@ function normalizeUrl(raw) {
     keep.sort(([a], [b]) => a.localeCompare(b));
     u.search = "";
     for (const [k, v] of keep) u.searchParams.append(k, v);
+    // normalize trailing slash on root-only paths
+    if (u.pathname === "/") u.pathname = "";
     return u.toString();
   } catch {
     return raw;
@@ -184,7 +191,7 @@ function relevanceScore({ title, description, url, pubDate }) {
   return score;
 }
 
-function dedupeByUrl(items) {
+function dedupeInMemoryByUrl(items) {
   const seen = new Set();
   return items.filter((it) => {
     const key = normalizeUrl(it.url || "");
@@ -210,7 +217,7 @@ async function rankAndSelect(rawItems) {
     });
     await sleep(10);
   }
-  const uniq = dedupeByUrl(pre);
+  const uniq = dedupeInMemoryByUrl(pre);
   const scored = uniq.map((it) => ({ ...it, score: relevanceScore(it) }));
   scored.sort((a, b) => (b.score - a.score) || (parseDate(b.pubDate) - parseDate(a.pubDate)));
   return scored;
@@ -261,6 +268,41 @@ async function pruneToNewest(limit = 10) {
   const { error: delErr } = await supabase.from("medical_news").delete().not("id", "in", inList);
   if (delErr) console.error("prune delete error:", delErr);
   else console.log(`Pruned table to newest ${keepIds.length} rows (ordered by ${orderCol}).`);
+}
+
+async function dedupeByUrlInDb() {
+  // Pull a reasonable window to dedupe (e.g., latest 200)
+  const orderCol = await pickOrderColumn();
+  const { data, error } = await supabase
+    .from("medical_news")
+    .select("id,url,published_at,created_at")
+    .order(orderCol, { ascending: false })
+    .limit(200);
+  if (error) {
+    console.error("dedupe select error:", error);
+    return;
+  }
+  const byUrl = new Map();
+  for (const r of data || []) {
+    const url = r.url || "";
+    if (!url) continue;
+    const ts = Date.parse(r.published_at || r.created_at || 0) || 0;
+    const prev = byUrl.get(url);
+    // keep the NEWEST one
+    if (!prev || ts > prev.ts || (ts === prev.ts && r.id > prev.id)) {
+      byUrl.set(url, { ts, keep: r.id });
+    }
+  }
+  const keepSet = new Set(Array.from(byUrl.values()).map((v) => v.keep));
+  const dupes = (data || []).map((r) => r.id).filter((id) => !keepSet.has(id));
+  if (dupes.length === 0) {
+    console.log("De-dup: nothing to remove.");
+    return;
+  }
+  const inList = `(${dupes.join(",")})`;
+  const { error: delErr } = await supabase.from("medical_news").delete().in("id", dupes);
+  if (delErr) console.error("De-dup delete error:", delErr);
+  else console.log(`De-dup: removed ${dupes.length} older duplicate row(s) by url.`);
 }
 
 // ------------------ Summarization & images ------------------
@@ -370,6 +412,37 @@ async function discoverImageForArticle({ title, url }) {
   return { image_url: "", image_attribution: "" };
 }
 
+// ------------------ Write helpers (no unique index required) ------------------
+async function upsertByUrl_NoIndex(row) {
+  // 1) check if exists
+  const { data: existing, error: selErr } = await supabase
+    .from("medical_news")
+    .select("id")
+    .eq("url", row.url)
+    .limit(1);
+  if (selErr) {
+    console.error("select existing error:", selErr);
+    return false;
+  }
+  if (existing && existing.length) {
+    // 2) update that row
+    const id = existing[0].id;
+    const { error: updErr } = await supabase.from("medical_news").update(row).eq("id", id);
+    if (updErr) {
+      console.error("update error:", updErr);
+      return false;
+    }
+    return true;
+  }
+  // 3) insert new
+  const { error: insErr } = await supabase.from("medical_news").insert([row]);
+  if (insErr) {
+    console.error("insert error:", insErr);
+    return false;
+  }
+  return true;
+}
+
 // ------------------ Main ------------------
 async function main() {
   console.log(`Crawler start (auth: ${process.env.SUPABASE_SERVICE_ROLE ? "service-role" : "anon"})`);
@@ -383,9 +456,9 @@ async function main() {
   const candidateUrls = ranked.map((r) => r.url);
   const existing = await fetchExistingUrls(candidateUrls);
   const fresh = ranked.filter((r) => !existing.has(r.url)).slice(0, TAKE_TOP);
-  console.log(`Selected ${fresh.length} new items to insert (target ${TAKE_TOP})`);
+  console.log(`Selected ${fresh.length} new items to write (target ${TAKE_TOP})`);
 
-  // 3) Summarize + image + upsert
+  // 3) Summarize + image + write (no unique index needed)
   let wrote = 0;
   for (const it of fresh) {
     try {
@@ -402,13 +475,10 @@ async function main() {
         image_attribution
       };
 
-      // Use upsert if you add a unique index on (url)
-      const { error } = await supabase.from("medical_news").upsert(row, { onConflict: "url" });
-      if (error) {
-        console.error("upsert error:", error);
-      } else {
+      const ok = await upsertByUrl_NoIndex(row);
+      if (ok) {
         wrote++;
-        console.log(`+ Upserted: ${row.title.slice(0, 100)} — ${row.url}`);
+        console.log(`+ Wrote: ${row.title.slice(0, 100)} — ${row.url}`);
       }
       await sleep(90);
     } catch (e) {
@@ -416,9 +486,10 @@ async function main() {
     }
   }
 
-  console.log(`Write phase done — upserted ${wrote} item(s).`);
+  console.log(`Write phase done — wrote ${wrote} item(s).`);
 
-  // 4) Always prune to newest 10
+  // 4) De-dup by URL in DB and prune to newest 10
+  await dedupeByUrlInDb();
   await pruneToNewest(10);
 
   console.log("Crawler finished.");
