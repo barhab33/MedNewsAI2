@@ -1,5 +1,5 @@
 /**
- * Schema-flexible exporter:
+ * Schema-flexible exporter (root version)
  * - Reads from `medical_news` with adaptive column mapping (url/link/article_url, etc.).
  * - Tries several sort columns (published_at, created_at, inserted_at, date, id).
  * - Outputs /public/feed.json and a simple /public/index.html.
@@ -7,9 +7,11 @@
 
 const fs = require("fs");
 const path = require("path");
-const { sb: supabase } = require("./lib/supabase-server.cjs");
 
-const OUT_DIR = path.join(__dirname, "..", "public");
+// Import shared Supabase client from scripts/lib/
+const { sb: supabase } = require("./scripts/lib/supabase-server.cjs");
+
+const OUT_DIR = path.join(__dirname, "public");
 
 // Small helpers
 const pick = (row, keys, fallback = "") => {
@@ -20,7 +22,6 @@ const pick = (row, keys, fallback = "") => {
 };
 
 async function fetchRows() {
-  // Try a few common order columns; fall back to unordered if none exist
   const orderCandidates = [
     "published_at",
     "created_at",
@@ -42,14 +43,11 @@ async function fetchRows() {
       return data || [];
     }
     if (error?.code !== "42703") {
-      // Not a "column does not exist" error -> surface it
       console.error("Supabase select error:", error);
       process.exit(1);
     }
-    // else: column missing; try next candidate
   }
 
-  // Last resort: no ordering
   const { data, error } = await supabase.from("medical_news").select("*").limit(300);
   if (error) {
     console.error("Supabase select error (fallback):", error);
