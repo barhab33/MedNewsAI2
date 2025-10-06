@@ -100,47 +100,7 @@ jobs:
           fi
 
       - name: Verify latest inserts (last 12h)
-        shell: bash
-        run: |
-          set -e
-          node - <<'JS'
-          const { sb } = require('./scripts/lib/supabase-server.cjs');
-
-          async function pickOrderColumn(candidates) {
-            for (const col of candidates) {
-              try {
-                // Try ordering by this column; if it doesn't exist, PostgREST returns 42703
-                await sb.from('medical_news').select('id', { head: true }).order(col, { ascending: false }).limit(1);
-                return col;
-              } catch (e) {
-                if (e?.code && e.code !== '42703') throw e;
-              }
-            }
-            return 'id';
-          }
-
-          (async () => {
-            const since = new Date(Date.now() - 12*3600*1000).toISOString();
-            const orderCol = await pickOrderColumn(['published_at','created_at','inserted_at','date','id']);
-
-            // Build OR filter without expressions (PostgREST constraint)
-            const ors = ['published_at', 'created_at'].map(c => `${c}.gte.${since}`).join(',');
-
-            const { data, error, count } = await sb
-              .from('medical_news')
-              .select('id,title,source,published_at,created_at', { count: 'exact' })
-              .or(ors)
-              .order(orderCol, { ascending: false })
-              .limit(50);
-
-            if (error) { console.error('Verify failed:', error); process.exit(1); }
-
-            const n = (typeof count === 'number') ? count : (data?.length || 0);
-            console.log(`Inserted/updated in last 12h: ${n} (ordered by ${orderCol})`);
-            (data || []).slice(0, 10).forEach((r, i) =>
-              console.log(`#${i+1}: ${r.title} • ${r.source} • ${(r.published_at||r.created_at)}`));
-          })().catch(e => { console.error(e); process.exit(1); });
-          JS
+        run: node scripts/verify-latest.cjs
 
       - name: Commit & push changes
         shell: bash
