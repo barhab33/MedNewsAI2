@@ -1,6 +1,6 @@
+// Browser client for your site; stays read-only with anon key.
 import { createClient } from "@supabase/supabase-js";
 
-// Read Supabase names first; fall back to your Bolt Vite names.
 const url =
   import.meta.env.VITE_SUPABASE_URL ||
   import.meta.env.VITE_BOLTDATABASE_URL;
