@@ -1,8 +1,8 @@
 /**
- * Schema-flexible exporter (root)
- * - Maps varying columns → {title,summary,url,source,publishedAt,imageUrl,imageAttribution}
- * - Derives source from URL hostname when missing/placeholder
- * - Flags Google News redirect links (so you can see what still needs canonicalization)
+ * export-to-public.cjs (root)
+ * - Exports the newest 10 rows from `medical_news`
+ * - Schema-flexible (adapts to your columns)
+ * - Writes /public/feed.json and /public/feed_meta.json
  */
 
 const fs = require("fs");
@@ -11,101 +11,69 @@ const { sb: supabase } = require("./scripts/lib/supabase-server.cjs");
 
 const OUT_DIR = path.join(__dirname, "public");
 
-const PLACEHOLDERS = new Set([
-  "MedNewsAI Editorial Team",
-  "Editorial",
-  "Unknown",
-  ""
-]);
-
-const isGoogleNewsLink = (u) => /^https?:\/\/news\.google\.com\/rss\//i.test(u || "");
-const hostnameOf = (u) => {
-  try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return ""; }
-};
-
-// Map helper
 const pick = (row, keys, fallback = "") => {
   for (const k of keys) if (k in row && row[k] != null) return row[k];
   return fallback;
 };
 
-async function fetchRows() {
-  const orderCandidates = ["published_at","created_at","inserted_at","date","id"];
-  for (const col of orderCandidates) {
-    const { data, error } = await supabase.from("medical_news").select("*").order(col, { ascending: false }).limit(300);
-    if (!error) { console.log(`Export: using order by ${col}`); return data || []; }
-    if (error?.code !== "42703") { console.error("Supabase select error:", error); process.exit(1); }
+async function pickOrderColumn() {
+  const candidates = ["published_at", "created_at", "inserted_at", "date", "id"];
+  for (const col of candidates) {
+    try {
+      await supabase.from("medical_news").select("id", { head: true }).order(col, { ascending: false }).limit(1);
+      return col;
+    } catch (e) {
+      if (e?.code && e.code !== "42703") throw e;
+    }
   }
-  const { data, error } = await supabase.from("medical_news").select("*").limit(300);
-  if (error) { console.error("Supabase select error (fallback):", error); process.exit(1); }
-  console.log("Export: no order column found; using unordered results.");
+  return "id";
+}
+
+async function fetchTop10() {
+  const orderCol = await pickOrderColumn();
+  const { data, error } = await supabase
+    .from("medical_news")
+    .select("*")
+    .order(orderCol, { ascending: false })
+    .limit(10);
+
+  if (error) {
+    console.error("Supabase select error:", error);
+    process.exit(1);
+  }
+  console.log(`Export: using order by ${orderCol}`);
   return data || [];
 }
 
 async function main() {
   fs.mkdirSync(OUT_DIR, { recursive: true });
-  const rows = await fetchRows();
+
+  const rows = await fetchTop10();
 
   const items = rows.map((it) => {
-    const title = pick(it, ["title","headline","name"], "");
-    const summary = pick(it, ["summary","abstract","description","ai_summary","gemini_summary"], "");
-    const url = pick(it, ["url","link","article_url","source_url","canonical_url"], "");
-    let source = pick(it, ["source","site","publisher","domain"], "");
-    const publishedAt = pick(it, ["published_at","publishedAt","pub_date","date","created_at","inserted_at"], null) || null;
-    const imageUrl = pick(it, ["image_url","imageUrl","image","thumbnail","thumb","cover"], "");
-    const imageAttribution = pick(it, ["image_attribution","attribution","image_credit","credit"], "");
-
-    // Derive source from hostname if missing/placeholder
-    if (!source || PLACEHOLDERS.has(source)) {
-      const host = hostnameOf(url);
-      if (host) source = host === "news.google.com" ? "Google News" : host;
+    const title = pick(it, ["title", "headline", "name"], "");
+    const summary = pick(it, ["summary", "abstract", "description", "ai_summary", "gemini_summary"], "");
+    const url = pick(it, ["url", "link", "article_url", "source_url", "canonical_url"], "");
+    let source = pick(it, ["source", "site", "publisher", "domain"], "");
+    const publishedAt = pick(it, ["published_at", "publishedAt", "pub_date", "date", "created_at", "inserted_at"], null) || null;
+    const imageUrl = pick(it, ["image_url", "imageUrl", "image", "thumbnail", "thumb", "cover"], "");
+    const imageAttribution = pick(it, ["image_attribution", "attribution", "image_credit", "credit"], "");
+    if (!source && url) {
+      try { source = new URL(url).hostname.replace(/^www\./, ""); } catch {}
     }
-
-    // Flag Google News redirect so you can spot them
-    const flags = { googleNewsRedirect: isGoogleNewsLink(url) };
-
-    return { title, summary, url, source, publishedAt, imageUrl, imageAttribution, flags };
+    return { title, summary, url, source, publishedAt, imageUrl, imageAttribution };
   });
 
-  fs.writeFileSync(path.join(OUT_DIR, "feed.json"), JSON.stringify(items, null, 2));
+  const feedPath = path.join(OUT_DIR, "feed.json");
+  const metaPath = path.join(OUT_DIR, "feed_meta.json");
 
-  const html = `<!doctype html>
-<html lang="en">
-<head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>MedNewsAI</title></head>
-<body>
-<header><h1>Medical & Health AI News</h1></header>
-<main id="app">Loading…</main>
-<footer style="margin-top:2rem;font-size:.9rem;opacity:.8">Summaries are AI-generated. Always read the original source.</footer>
-<script>
-(async function () {
-  const res = await fetch('/feed.json');
-  const data = await res.json();
-  const app = document.getElementById('app');
-  app.innerHTML = data.map(it => {
-    const pub = it.publishedAt ? new Date(it.publishedAt).toLocaleString() : '';
-    const img = it.imageUrl ? '<img src="'+it.imageUrl+'" alt="" style="max-width:100%;border-radius:12px;margin:.5rem 0"/>' : '';
-    const flag = it.flags && it.flags.googleNewsRedirect ? '<span style="color:#b00;font-size:.8rem;margin-left:.5rem">(Google News link)</span>' : '';
-    const attr = it.imageAttribution ? '<div style="font-size:.8rem;opacity:.8">'+it.imageAttribution+'</div>' : '';
-    return \`
-      <article style="border:1px solid #ddd;padding:12px;border-radius:12px;margin:12px 0">
-        <h2 style="margin:0 0 8px 0">\${it.title || 'Untitled'}</h2>
-        <div style="font-size:.9rem;opacity:.8;margin-bottom:8px">
-          <span>\${it.source || 'Source'}</span> • <time>\${pub}</time>\${flag}
-        </div>
-        \${img}
-        <p>\${(it.summary || '').replace(/</g,'&lt;')}</p>
-        <p><a href="\${it.url}" rel="noopener nofollow" target="_blank">Read the original</a></p>
-        \${attr}
-        <div style="font-size:.8rem;opacity:.8;margin-top:6px">AI-generated summary; verify with source.</div>
-      </article>\`;
-  }).join('');
-}());
-</script>
-</body>
-</html>`;
-  fs.writeFileSync(path.join(OUT_DIR, "index.html"), html);
+  fs.writeFileSync(feedPath, JSON.stringify(items, null, 2));
+  fs.writeFileSync(metaPath, JSON.stringify({
+    generatedAt: new Date().toISOString(),
+    itemCount: items.length
+  }, null, 2));
 
-  console.log(`Exported ${items.length} items to /public`);
+  console.log(`Exported ${items.length} items to /public (feed.json + feed_meta.json)`);
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });
