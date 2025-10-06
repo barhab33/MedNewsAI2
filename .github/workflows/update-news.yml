@@ -22,9 +22,9 @@ jobs:
       # Bolt DB envs (shim accepts SUPABASE_* if you add later)
       VITE_BOLTDATABASE_URL: ${{ secrets.VITE_BOLTDATABASE_URL }}
       VITE_BOLTDATABASE_ANON_KEY: ${{ secrets.VITE_BOLTDATABASE_ANON_KEY }}
-      # If any script WRITES to DB, include the service role (server-only)
+      # If any script WRITES to DB (insert/update), include the service role (server-only)
       SUPABASE_SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE }}
-      # AI keys used by original crawler/summarizer
+      # AI keys used by your crawler/summarizer (optional)
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -33,7 +33,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with: { fetch-depth: 0 }
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -104,16 +105,38 @@ jobs:
           set -e
           node - <<'JS'
           const { sb } = require('./scripts/lib/supabase-server.cjs');
+
+          async function pickOrderColumn(candidates) {
+            for (const col of candidates) {
+              try {
+                // Try ordering by this column; if it doesn't exist, PostgREST returns 42703
+                await sb.from('medical_news').select('id', { head: true }).order(col, { ascending: false }).limit(1);
+                return col;
+              } catch (e) {
+                if (e?.code && e.code !== '42703') throw e;
+              }
+            }
+            return 'id';
+          }
+
           (async () => {
             const since = new Date(Date.now() - 12*3600*1000).toISOString();
+            const orderCol = await pickOrderColumn(['published_at','created_at','inserted_at','date','id']);
+
+            // Build OR filter without expressions (PostgREST constraint)
+            const ors = ['published_at', 'created_at'].map(c => `${c}.gte.${since}`).join(',');
+
             const { data, error, count } = await sb
               .from('medical_news')
               .select('id,title,source,published_at,created_at', { count: 'exact' })
-              .gte('coalesce(published_at, created_at)', since)
-              .order('coalesce(published_at, created_at)', { ascending: false });
+              .or(ors)
+              .order(orderCol, { ascending: false })
+              .limit(50);
+
             if (error) { console.error('Verify failed:', error); process.exit(1); }
+
             const n = (typeof count === 'number') ? count : (data?.length || 0);
-            console.log(`Inserted/updated in last 12h: ${n}`);
+            console.log(`Inserted/updated in last 12h: ${n} (ordered by ${orderCol})`);
             (data || []).slice(0, 10).forEach((r, i) =>
               console.log(`#${i+1}: ${r.title} • ${r.source} • ${(r.published_at||r.created_at)}`));
           })().catch(e => { console.error(e); process.exit(1); });
