@@ -1,20 +1,29 @@
 name: update-news
 
 on:
-  workflow_dispatch: {}        # manual run button
+  workflow_dispatch: {}        # manual Run button
   schedule:
     - cron: "0 */8 * * *"      # every 8 hours
+
+permissions:
+  contents: write
+  actions: read
+  id-token: write
+
+concurrency:
+  group: update-news
+  cancel-in-progress: false
 
 jobs:
   run:
     runs-on: ubuntu-latest
 
     env:
-      # Required
+      # Required for DB
       VITE_BOLTDATABASE_URL: ${{ secrets.VITE_BOLTDATABASE_URL }}
       VITE_BOLTDATABASE_ANON_KEY: ${{ secrets.VITE_BOLTDATABASE_ANON_KEY }}
       SUPABASE_SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE }}
-      # Optional (summaries/images)
+      # Optional AI / images
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -39,7 +48,7 @@ jobs:
         run: |
           set -e
           echo "Node: $(node -v)"
-          echo "Repo root:"
+          echo "Root:"
           ls -la
           echo "scripts/:"
           ls -la scripts || true
@@ -74,18 +83,7 @@ jobs:
         run: |
           set -e
           FOUND=""
-          CANDIDATES="\
-scripts/crawl-multi-source.cjs
-scripts/crawl-multi-ai.cjs
-scripts/crawl-supabase.cjs
-scripts/crawl.cjs
-scripts/crawler.cjs
-crawl-multi-source.cjs
-crawl-multi-ai.cjs
-crawl-supabase.cjs
-crawl.cjs
-crawler.cjs
-index.cjs"
+          CANDIDATES="scripts/crawl-multi-source.cjs scripts/crawl-multi-ai.cjs scripts/crawl-supabase.cjs scripts/crawl.cjs scripts/crawler.cjs crawl-multi-source.cjs crawl-multi-ai.cjs crawl-supabase.cjs crawl.cjs crawler.cjs index.cjs"
           for f in $CANDIDATES; do
             if [ -f "$f" ]; then
               FOUND="$f"
@@ -103,4 +101,51 @@ index.cjs"
         shell: bash
         run: |
           set -e
-          if [ -f scripts/maint]()
+          if [ -f scripts/maintenance-normalize.cjs ]; then
+            echo "▶ Running maintenance-normalize"
+            node scripts/maintenance-normalize.cjs
+          else
+            echo "ℹ️ No maintenance script found; skipping."
+          fi
+
+      - name: Export to public (root preferred; scripts/ fallback)
+        shell: bash
+        run: |
+          set -e
+          if [ -f export-to-public.cjs ]; then
+            echo "▶ Exporting via root export-to-public.cjs"
+            node export-to-public.cjs
+          elif [ -f scripts/export-to-public.cjs ]; then
+            echo "▶ Exporting via scripts/export-to-public.cjs"
+            node scripts/export-to-public.cjs
+          else
+            echo "❌ No export-to-public script found"
+            exit 1
+          fi
+
+      - name: Stat feed files (prove writes)
+        shell: bash
+        run: |
+          set -e
+          echo "== ls -l public =="
+          ls -l public || true
+          echo "== sha256 =="
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum public/feed.json public/feed_meta.json
+          else
+            shasum -a 256 public/feed.json public/feed_meta.json
+          fi
+          echo "== first 2 lines of feed.json =="
+          head -n 2 public/feed.json || true
+          echo "== meta =="
+          cat public/feed_meta.json || true
+
+      - name: Commit & push changes
+        shell: bash
+        run: |
+          set -e
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "chore: auto update news [skip ci]" || echo "No changes to commit"
+          git push || true
