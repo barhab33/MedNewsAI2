@@ -1,6 +1,6 @@
 /**
  * scripts/crawl-multi-source.cjs
- * Crawl → rank → take top 10 new URLs → summarize (Gemini) → image → insert → prune to 10 newest
+ * Crawl → rank → take top 10 *new* URLs → summarize (Gemini) → image → insert → prune to 10 newest
  */
 
 const { sb: supabase } = require("./lib/supabase-server.cjs");
@@ -160,30 +160,21 @@ async function rankAndSelectTop(rawItems) {
     await sleep(15);
   }
   const uniq = dedupeByUrl(pre);
-
   const scored = uniq.map(it => ({ ...it, score: relevanceScore(it) }));
   scored.sort((a,b) => (b.score - a.score) || (parseDate(b.pubDate) - parseDate(a.pubDate)));
-
   return scored;
 }
 
 // ------------------ DB helpers ------------------
 async function fetchExistingUrls(urls) {
   if (urls.length === 0) return new Set();
-  // Supabase in('url', [...]) requires array literal; chunk if large
   const chunks = []; const size = 100;
   for (let i=0;i<urls.length;i+=size) chunks.push(urls.slice(i, i+size));
   const existed = new Set();
   for (const ch of chunks) {
-    const { data, error } = await supabase
-      .from("medical_news")
-      .select("url")
-      .in("url", ch);
-    if (!error && Array.isArray(data)) {
-      data.forEach(r => r?.url && existed.add(r.url));
-    } else if (error) {
-      console.error("fetchExistingUrls error:", error);
-    }
+    const { data, error } = await supabase.from("medical_news").select("url").in("url", ch);
+    if (!error && Array.isArray(data)) data.forEach(r => r?.url && existed.add(r.url));
+    else if (error) console.error("fetchExistingUrls error:", error);
     await sleep(20);
   }
   return existed;
@@ -293,11 +284,11 @@ async function discoverImageForArticle({ title, url }) {
   const og = extractOgImage(html || "", url);
   if (og) return { image_url: og, image_attribution: "" };
 
-  if (process.env.PEXELS_API_KEY) {
+  if (PEXELS_KEY) {
     try {
       const q = encodeURIComponent((title || "").replace(/[:\-–|]/g, " ").slice(0, 60) + " medical AI");
       const api = `https://api.pexels.com/v1/search?query=${q}&per_page=1`;
-      const res = await fetch(api, { headers: { Authorization: process.env.PEXELS_API_KEY } });
+      const res = await fetch(api, { headers: { Authorization: PEXELS_KEY } });
       if (res.ok) {
         const json = await res.json();
         const photo = json.photos?.[0];
