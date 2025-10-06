@@ -19,10 +19,10 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      # Bolt DB envs (shim also accepts SUPABASE_* if you add them later)
+      # Bolt DB envs (the shim also accepts SUPABASE_* if you add them later)
       VITE_BOLTDATABASE_URL: ${{ secrets.VITE_BOLTDATABASE_URL }}
       VITE_BOLTDATABASE_ANON_KEY: ${{ secrets.VITE_BOLTDATABASE_ANON_KEY }}
-      # Needed for inserts (bypass RLS in CI)
+      # Needed for inserts (bypass RLS in server/CI)
       SUPABASE_SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE }}
       # AI / image keys (optional but used by your crawler)
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -52,64 +52,4 @@ jobs:
           set -e
           [ -n "$VITE_BOLTDATABASE_URL" ] && echo "VITE_BOLTDATABASE_URL set" || (echo "VITE_BOLTDATABASE_URL MISSING" && exit 1)
           [ -n "$VITE_BOLTDATABASE_ANON_KEY" ] && echo "VITE_BOLTDATABASE_ANON_KEY set" || (echo "VITE_BOLTDATABASE_ANON_KEY MISSING" && exit 1)
-          echo "Optional keys present:" \
-            GEMINI:$([ -n "$GEMINI_API_KEY" ] && echo yes || echo no) \
-            PEXELS:$([ -n "$PEXELS_API_KEY" ] && echo yes || echo no) \
-            GOOGLE:$([ -n "$GOOGLE_API_KEY" ] && echo yes || echo no) \
-            OPENAI:$([ -n "$OPENAI_API_KEY" ] && echo yes || echo no) \
-            ANTHROPIC:$([ -n "$ANTHROPIC_API_KEY" ] && echo yes || echo no)
-
-      - name: Ensure service role for writes
-        if: ${{ !env.SUPABASE_SERVICE_ROLE }}
-        run: |
-          echo "SUPABASE_SERVICE_ROLE is missing — crawler inserts will fail under RLS."
-          exit 1
-
-      - name: Crawl & summarize (auto-detect script)
-        shell: bash
-        run: |
-          set -e
-          CANDIDATES=(
-            "scripts/crawl-multi-ai.cjs"
-            "scripts/crawl-multi-source.cjs"
-            "scripts/crawl-supabase.cjs"
-            "scripts/crawl.cjs"
-            "scripts/crawler.cjs"
-            "crawl-multi-ai.cjs"
-            "crawl-multi-source.cjs"
-            "crawl-supabase.cjs"
-            "crawl.cjs"
-            "crawler.cjs"
-            "index.cjs"
-          )
-          FOUND=""
-          for f in "${CANDIDATES[@]}"; do
-            if [ -f "$f" ]; then FOUND="$f"; break; fi
-          done
-          if [ -z "$FOUND" ]; then
-            echo "No crawler script found; skipping crawl."
-            exit 0
-          fi
-          echo "Using crawler: $FOUND"
-          node "$FOUND"
-
-      - name: Export to public (root or scripts/)
-        shell: bash
-        run: |
-          set -e
-          if [ -f scripts/export-to-public.cjs ]; then
-            echo "Exporting via scripts/export-to-public.cjs"
-            node scripts/export-to-public.cjs
-          elif [ -f export-to-public.cjs ]; then
-            echo "Exporting via root export-to-public.cjs"
-            node export-to-public.cjs
-          else
-            echo "No export-to-public script found at root or scripts/ — skipping."
-          fi
-
-      - name: Verify latest inserts (last 12h)
-        run: node scripts/verify-latest.cjs
-
-      - name: Show feed summary
-        run: |
-          node -e "const fs=req
+          e
