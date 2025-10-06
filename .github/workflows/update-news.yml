@@ -1,7 +1,7 @@
 name: update-news
 
 on:
-  workflow_dispatch: {}        # makes the "Run workflow" button appear
+  workflow_dispatch: {}        # manual run button
   schedule:
     - cron: "0 */8 * * *"      # every 8 hours
 
@@ -73,23 +73,34 @@ jobs:
         shell: bash
         run: |
           set -e
-          CANDIDATES=(
-            "scripts/crawl-multi-source.cjs"
-            "scripts/crawl-multi-ai.cjs"
-            "scripts/crawl-supabase.cjs"
-            "scripts/crawl.cjs"
-            "scripts/crawler.cjs"
-            "crawl-multi-source.cjs"
-            "crawl-multi-ai.cjs"
-            "crawl-supabase.cjs"
-            "crawl.cjs"
-            "crawler.cjs"
-            "index.cjs"
-          )
           FOUND=""
-          for f in "${CANDIDATES[@]}"; do
-            if [ -f "$f" ]; then FOUND="$f"; break; fi
+          CANDIDATES="\
+scripts/crawl-multi-source.cjs
+scripts/crawl-multi-ai.cjs
+scripts/crawl-supabase.cjs
+scripts/crawl.cjs
+scripts/crawler.cjs
+crawl-multi-source.cjs
+crawl-multi-ai.cjs
+crawl-supabase.cjs
+crawl.cjs
+crawler.cjs
+index.cjs"
+          for f in $CANDIDATES; do
+            if [ -f "$f" ]; then
+              FOUND="$f"
+              break
+            fi
           done
           if [ -z "$FOUND" ]; then
             echo "ℹ️ No crawler script found; skipping crawl."
           else
+            echo "▶ Using crawler: $FOUND"
+            node "$FOUND"
+          fi
+
+      - name: Maintenance: normalize legacy URLs & prune (if present)
+        shell: bash
+        run: |
+          set -e
+          if [ -f scripts/maint]()
