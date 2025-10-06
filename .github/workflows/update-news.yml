@@ -1,29 +1,18 @@
 name: update-news
 
 on:
-  workflow_dispatch: {}        # manual Run button
+  workflow_dispatch:
   schedule:
-    - cron: "0 */8 * * *"      # every 8 hours
-
-permissions:
-  contents: write
-  actions: read
-  id-token: write
-
-concurrency:
-  group: update-news
-  cancel-in-progress: false
+    - cron: '0 */8 * * *'
 
 jobs:
   run:
     runs-on: ubuntu-latest
 
     env:
-      # Required for DB
       VITE_BOLTDATABASE_URL: ${{ secrets.VITE_BOLTDATABASE_URL }}
       VITE_BOLTDATABASE_ANON_KEY: ${{ secrets.VITE_BOLTDATABASE_ANON_KEY }}
       SUPABASE_SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE }}
-      # Optional AI / images
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -40,67 +29,84 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
-          cache: "npm"
-
-      - name: Quick sanity
-        shell: bash
-        run: |
-          set -e
-          node -v
-          echo "Root:"; ls -la || true
-          echo "scripts/:"; ls -la scripts || true
-          echo "public/:"; ls -la public || true
+          node-version: '20'
+          cache: 'npm'
 
       - name: Install dependencies
         shell: bash
         run: |
           set -e
-          if [ -f package-lock.json ]; then
-            npm ci
-          else
-            npm i
-          fi
+          if [ -f package-lock.json ]; then npm ci; else npm i; fi
 
-      - name: Check required secrets (minimal, no emojis)
-        shell: bash
-        run: |
-          set -e
-          if [ -z "$VITE_BOLTDATABASE_URL" ]; then echo "VITE_BOLTDATABASE_URL missing"; exit 1; fi
-          if [ -z "$VITE_BOLTDATABASE_ANON_KEY" ]; then echo "VITE_BOLTDATABASE_ANON_KEY missing"; exit 1; fi
-          if [ -z "$SUPABASE_SERVICE_ROLE" ]; then echo "SUPABASE_SERVICE_ROLE missing"; exit 1; fi
-          echo "Required secrets present"
-          echo "Optional keys:"
-          if [ -n "$GEMINI_API_KEY" ]; then echo "  GEMINI_API_KEY: yes"; else echo "  GEMINI_API_KEY: no"; fi
-          if [ -n "$PEXELS_API_KEY" ]; then echo "  PEXELS_API_KEY: yes"; else echo "  PEXELS_API_KEY: no"; fi
-          if [ -n "$GOOGLE_API_KEY" ]; then echo "  GOOGLE_API_KEY: yes"; else echo "  GOOGLE_API_KEY: no"; fi
-          if [ -n "$OPENAI_API_KEY" ]; then echo "  OPENAI_API_KEY: yes"; else echo "  OPENAI_API_KEY: no"; fi
-          if [ -n "$ANTHROPIC_API_KEY" ]; then echo "  ANTHROPIC_API_KEY: yes"; else echo "  ANTHROPIC_API_KEY: no"; fi
-
-      - name: Crawl & summarize (auto-detect script)
+      - name: Crawl & summarize (auto-detect)
         shell: bash
         run: |
           set -e
           FOUND=""
-          CANDIDATES="scripts/crawl-multi-source.cjs scripts/crawl-multi-ai.cjs scripts/crawl-supabase.cjs scripts/crawl.cjs scripts/crawler.cjs crawl-multi-source.cjs crawl-multi-ai.cjs crawl-supabase.cjs crawl.cjs crawler.cjs index.cjs"
-          for f in $CANDIDATES; do
-            if [ -f "$f" ]; then
-              FOUND="$f"
-              break
-            fi
+          for f in \
+            scripts/crawl-multi-source.cjs \
+            scripts/crawl-multi-ai.cjs \
+            scripts/crawl-supabase.cjs \
+            scripts/crawl.cjs \
+            scripts/crawler.cjs \
+            crawl-multi-source.cjs \
+            crawl-multi-ai.cjs \
+            crawl-supabase.cjs \
+            crawl.cjs \
+            crawler.cjs \
+            index.cjs
+          do
+            if [ -f "$f" ]; then FOUND="$f"; break; fi
           done
-          if [ -z "$FOUND" ]; then
-            echo "No crawler script found; skipping crawl."
-          else
+          if [ -n "$FOUND" ]; then
             echo "Using crawler: $FOUND"
             node "$FOUND"
+          else
+            echo "No crawler script found; skipping crawl."
           fi
 
-      - name: Maintenance: normalize legacy URLs & prune (if present)
+      - name: Maintenance (normalize & prune) if present
         shell: bash
         run: |
           set -e
           if [ -f scripts/maintenance-normalize.cjs ]; then
-            echo "Running maintenance-normalize"
             node scripts/maintenance-normalize.cjs
           else
+            echo "No maintenance script; skipping."
+          fi
+
+      - name: Export to public (root preferred; scripts/ fallback)
+        shell: bash
+        run: |
+          set -e
+          if [ -f export-to-public.cjs ]; then
+            node export-to-public.cjs
+          elif [ -f scripts/export-to-public.cjs ]; then
+            node scripts/export-to-public.cjs
+          else
+            echo "No export-to-public script found"
+            exit 1
+          fi
+
+      - name: Show feed file stats
+        shell: bash
+        run: |
+          set -e
+          ls -l public || true
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum public/feed.json public/feed_meta.json || true
+          else
+            shasum -a 256 public/feed.json public/feed_meta.json || true
+          fi
+          head -n 2 public/feed.json || true
+          cat public/feed_meta.json || true
+
+      - name: Commit & push changes
+        shell: bash
+        run: |
+          set -e
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "chore: auto update news [skip ci]" || echo "No changes to commit"
+          git push || true
