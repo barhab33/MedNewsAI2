@@ -50,11 +50,23 @@ jobs:
         shell: bash
         run: |
           set -e
-          if [ -n "$VITE_BOLTDATABASE_URL" ]; then echo "VITE_BOLTDATABASE_URL set"; else echo "VITE_BOLTDATABASE_URL MISSING"; exit 1; fi
-          if [ -n "$VITE_BOLTDATABASE_ANON_KEY" ]; then echo "VITE_BOLTDATABASE_ANON_KEY set"; else echo "VITE_BOLTDATABASE_ANON_KEY MISSING"; exit 1; fi
+          if [ -n "$VITE_BOLTDATABASE_URL" ]; then
+            echo "VITE_BOLTDATABASE_URL set"
+          else
+            echo "VITE_BOLTDATABASE_URL MISSING"; exit 1
+          fi
+          if [ -n "$VITE_BOLTDATABASE_ANON_KEY" ]; then
+            echo "VITE_BOLTDATABASE_ANON_KEY set"
+          else
+            echo "VITE_BOLTDATABASE_ANON_KEY MISSING"; exit 1
+          fi
           echo "Optional keys present:"
           for k in GEMINI_API_KEY PEXELS_API_KEY GOOGLE_API_KEY OPENAI_API_KEY ANTHROPIC_API_KEY; do
-            if [ -n "${!k}" ]; then echo "  $k: yes"; else echo "  $k: no"; fi
+            if [ -n "${!k}" ]; then
+              echo "  $k: yes"
+            else
+              echo "  $k: no"
+            fi
           done
 
       - name: Ensure service role for writes
@@ -68,13 +80,13 @@ jobs:
         run: |
           set -e
           CANDIDATES=(
-            "scripts/crawl-multi-ai.cjs"
             "scripts/crawl-multi-source.cjs"
+            "scripts/crawl-multi-ai.cjs"
             "scripts/crawl-supabase.cjs"
             "scripts/crawl.cjs"
             "scripts/crawler.cjs"
-            "crawl-multi-ai.cjs"
             "crawl-multi-source.cjs"
+            "crawl-multi-ai.cjs"
             "crawl-supabase.cjs"
             "crawl.cjs"
             "crawler.cjs"
@@ -106,6 +118,23 @@ jobs:
             exit 1
           fi
 
+      - name: Stat feed files (prove writes)
+        shell: bash
+        run: |
+          set -e
+          echo "== ls -l public =="
+          ls -l public || true
+          echo "== sha256 =="
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum public/feed.json public/feed_meta.json
+          else
+            shasum -a 256 public/feed.json public/feed_meta.json
+          fi
+          echo "== first 2 lines of feed.json =="
+          head -n 2 public/feed.json || true
+          echo "== meta =="
+          cat public/feed_meta.json || true
+
       - name: Verify latest inserts (last 12h)
         run: node scripts/verify-latest.cjs
 
@@ -115,28 +144,24 @@ jobs:
           set -e
           node - <<'JS'
           const fs = require('fs');
-          const p = (x)=>require('path').join('public', x);
-          const feedPath = p('feed.json');
-          const metaPath = p('feed_meta.json');
-          if (!fs.existsSync(feedPath)) { console.log('feed.json not found'); process.exit(1); }
+          const path = require('path');
+          const feedPath = path.join('public', 'feed.json');
+          const metaPath = path.join('public', 'feed_meta.json');
+          if (!fs.existsSync(feedPath)) {
+            console.log('feed.json not found');
+            process.exit(1);
+          }
           const feed = JSON.parse(fs.readFileSync(feedPath, 'utf8'));
           console.log('Items:', Array.isArray(feed) ? feed.length : 0);
           console.log('First title:', (Array.isArray(feed) && feed[0] && feed[0].title) || '(none)');
           if (fs.existsSync(metaPath)) {
             const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
             console.log('Generated at:', meta.generatedAt);
+            console.log('Item count in meta:', meta.itemCount);
           } else {
             console.log('feed_meta.json not found');
           }
           JS
-
-      - name: Git status before commit
-        shell: bash
-        run: |
-          echo "==== git status (short) ===="
-          git status -s || true
-          echo "==== changed files ===="
-          git diff --name-only || true
 
       - name: Upload feed artifact
         if: ${{ always() }}
