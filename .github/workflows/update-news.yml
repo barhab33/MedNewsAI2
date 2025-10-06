@@ -19,16 +19,17 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      # Bolt DB envs (shim accepts SUPABASE_* if you add later)
+      # Bolt DB envs (the shim also accepts SUPABASE_* if you add them later)
       VITE_BOLTDATABASE_URL: ${{ secrets.VITE_BOLTDATABASE_URL }}
       VITE_BOLTDATABASE_ANON_KEY: ${{ secrets.VITE_BOLTDATABASE_ANON_KEY }}
-      # If any script WRITES to DB (insert/update), include the service role (server-only)
+      # Needed for inserts (bypass RLS in server/CI)
       SUPABASE_SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE }}
-      # AI keys used by your crawler/summarizer (optional)
+      # AI / image keys (optional but used by your crawler)
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
 
     steps:
       - name: Checkout
@@ -53,9 +54,16 @@ jobs:
           [ -n "$VITE_BOLTDATABASE_ANON_KEY" ] && echo "VITE_BOLTDATABASE_ANON_KEY set" || (echo "VITE_BOLTDATABASE_ANON_KEY MISSING" && exit 1)
           echo "Optional keys present:" \
             GEMINI:$([ -n "$GEMINI_API_KEY" ] && echo yes || echo no) \
+            PEXELS:$([ -n "$PEXELS_API_KEY" ] && echo yes || echo no) \
             GOOGLE:$([ -n "$GOOGLE_API_KEY" ] && echo yes || echo no) \
             OPENAI:$([ -n "$OPENAI_API_KEY" ] && echo yes || echo no) \
             ANTHROPIC:$([ -n "$ANTHROPIC_API_KEY" ] && echo yes || echo no)
+
+      - name: Ensure service role for writes
+        if: ${{ !env.SUPABASE_SERVICE_ROLE }}
+        run: |
+          echo "SUPABASE_SERVICE_ROLE is missing — crawler inserts will fail under RLS."
+          exit 1
 
       - name: Crawl & summarize (auto-detect script)
         shell: bash
@@ -101,6 +109,22 @@ jobs:
 
       - name: Verify latest inserts (last 12h)
         run: node scripts/verify-latest.cjs
+
+      - name: Assert feed has items
+        shell: bash
+        run: |
+          set -e
+          test -f public/feed.json
+          COUNT=$(node -e "console.log(JSON.parse(require('fs').readFileSync('public/feed.json','utf8')).length)")
+          echo "feed.json items: $COUNT"
+          [ "$COUNT" -gt 0 ] || (echo "feed.json is empty" && exit 1)
+
+      - name: Upload feed artifact
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: public-feed
+          path: public/feed.json
 
       - name: Commit & push changes
         shell: bash
