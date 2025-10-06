@@ -33,6 +33,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: true
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -40,18 +41,41 @@ jobs:
           node-version: "20"
           cache: "npm"
 
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Debug env presence
+      - name: Show basic debug
         shell: bash
         run: |
           set -e
-          [ -n "$VITE_BOLTDATABASE_URL" ] || { echo "VITE_BOLTDATABASE_URL MISSING"; exit 1; }
-          [ -n "$VITE_BOLTDATABASE_ANON_KEY" ] || { echo "VITE_BOLTDATABASE_ANON_KEY MISSING"; exit 1; }
-          [ -n "$SUPABASE_SERVICE_ROLE" ] || { echo "SUPABASE_SERVICE_ROLE MISSING"; exit 1; }
-          echo "GEMINI: $([ -n "$GEMINI_API_KEY" ] && echo yes || echo no)"
-          echo "PEXELS: $([ -n "$PEXELS_API_KEY" ] && echo yes || echo no)"
+          node -v
+          npm -v
+          echo "Repo root:"
+          ls -la
+          echo "scripts/:"
+          ls -la scripts || true
+          echo "public/:"
+          ls -la public || true
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -e
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm i
+          fi
+
+      - name: Check required secrets
+        shell: bash
+        run: |
+          set -e
+          [ -n "$VITE_BOLTDATABASE_URL" ] || { echo "❌ VITE_BOLTDATABASE_URL is missing (set it in repo Settings → Secrets → Actions)"; exit 1; }
+          [ -n "$VITE_BOLTDATABASE_ANON_KEY" ] || { echo "❌ VITE_BOLTDATABASE_ANON_KEY is missing"; exit 1; }
+          [ -n "$SUPABASE_SERVICE_ROLE" ] || { echo "❌ SUPABASE_SERVICE_ROLE is missing (needed for DB writes under RLS)"; exit 1; }
+          echo "✅ Required secrets present"
+          echo "Optional keys:"
+          for k in GEMINI_API_KEY PEXELS_API_KEY GOOGLE_API_KEY OPENAI_API_KEY ANTHROPIC_API_KEY; do
+            if [ -n "${!k}" ]; then echo "  $k: yes"; else echo "  $k: no"; fi
+          done
 
       - name: Crawl & summarize (auto-detect script)
         shell: bash
@@ -75,27 +99,35 @@ jobs:
             if [ -f "$f" ]; then FOUND="$f"; break; fi
           done
           if [ -z "$FOUND" ]; then
-            echo "No crawler script found; skipping crawl."
+            echo "ℹ️ No crawler script found; skipping crawl."
           else
-            echo "Using crawler: $FOUND"
+            echo "▶ Using crawler: $FOUND"
             node "$FOUND"
           fi
 
-      - name: Maintenance: normalize legacy URLs & prune
-        run: node scripts/maintenance-normalize.cjs
+      - name: Maintenance: normalize legacy URLs & prune (if present)
+        shell: bash
+        run: |
+          set -e
+          if [ -f scripts/maintenance-normalize.cjs ]; then
+            echo "▶ Running maintenance-normalize"
+            node scripts/maintenance-normalize.cjs
+          else
+            echo "ℹ️ No maintenance script found; skipping."
+          fi
 
       - name: Export to public (root preferred; scripts/ fallback)
         shell: bash
         run: |
           set -e
           if [ -f export-to-public.cjs ]; then
-            echo "Exporting via root export-to-public.cjs"
+            echo "▶ Exporting via root export-to-public.cjs"
             node export-to-public.cjs
           elif [ -f scripts/export-to-public.cjs ]; then
-            echo "Exporting via scripts/export-to-public.cjs"
+            echo "▶ Exporting via scripts/export-to-public.cjs"
             node scripts/export-to-public.cjs
           else
-            echo "No export-to-public script found — failing."
+            echo "❌ No export-to-public script found at root or scripts/"
             exit 1
           fi
 
@@ -116,8 +148,15 @@ jobs:
           echo "== meta =="
           cat public/feed_meta.json || true
 
-      - name: Verify latest inserts (last 12h)
-        run: node scripts/verify-latest.cjs
+      - name: Verify latest inserts (last 12h) (if present)
+        shell: bash
+        run: |
+          set -e
+          if [ -f scripts/verify-latest.cjs ]; then
+            node scripts/verify-latest.cjs
+          else
+            echo "ℹ️ No verify-latest.cjs found; skipping."
+          fi
 
       - name: Upload feed artifact
         if: ${{ always() }}
