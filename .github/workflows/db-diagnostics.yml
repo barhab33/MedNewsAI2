@@ -1,0 +1,40 @@
+name: db-diagnostics
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    env:
+      VITE_BOLTDATABASE_URL: ${{ secrets.VITE_BOLTDATABASE_URL }}
+      VITE_BOLTDATABASE_ANON_KEY: ${{ secrets.VITE_BOLTDATABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Print key presence
+        shell: bash
+        run: |
+          set -e
+          echo "Have VITE_BOLTDATABASE_URL? $([ -n "$VITE_BOLTDATABASE_URL" ] && echo yes || echo no)"
+          echo "Have VITE_BOLTDATABASE_ANON_KEY? $([ -n "$VITE_BOLTDATABASE_ANON_KEY" ] && echo yes || echo no)"
+          echo "Have SUPABASE_SERVICE_ROLE? $([ -n "$SUPABASE_SERVICE_ROLE" ] && echo yes || echo no)"
+
+      - name: DB sanity probe
+        run: node scripts/db-sanity.cjs
