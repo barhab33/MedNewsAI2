@@ -50,6 +50,116 @@ jobs:
         shell: bash
         run: |
           set -e
-          [ -n "$VITE_BOLTDATABASE_URL" ] && echo "VITE_BOLTDATABASE_URL set" || (echo "VITE_BOLTDATABASE_URL MISSING" && exit 1)
-          [ -n "$VITE_BOLTDATABASE_ANON_KEY" ] && echo "VITE_BOLTDATABASE_ANON_KEY set" || (echo "VITE_BOLTDATABASE_ANON_KEY MISSING" && exit 1)
-          e
+          if [ -n "$VITE_BOLTDATABASE_URL" ]; then
+            echo "VITE_BOLTDATABASE_URL set"
+          else
+            echo "VITE_BOLTDATABASE_URL MISSING"; exit 1
+          fi
+          if [ -n "$VITE_BOLTDATABASE_ANON_KEY" ]; then
+            echo "VITE_BOLTDATABASE_ANON_KEY set"
+          else
+            echo "VITE_BOLTDATABASE_ANON_KEY MISSING"; exit 1
+          fi
+          echo "Optional keys present:"
+          for k in GEMINI_API_KEY PEXELS_API_KEY GOOGLE_API_KEY OPENAI_API_KEY ANTHROPIC_API_KEY; do
+            if [ -n "${!k}" ]; then
+              echo "  $k: yes"
+            else
+              echo "  $k: no"
+            fi
+          done
+
+      - name: Ensure service role for writes
+        if: ${{ !env.SUPABASE_SERVICE_ROLE }}
+        run: |
+          echo "SUPABASE_SERVICE_ROLE is missing — crawler inserts will fail under RLS."
+          exit 1
+
+      - name: Crawl & summarize (auto-detect script)
+        shell: bash
+        run: |
+          set -e
+          CANDIDATES=(
+            "scripts/crawl-multi-ai.cjs"
+            "scripts/crawl-multi-source.cjs"
+            "scripts/crawl-supabase.cjs"
+            "scripts/crawl.cjs"
+            "scripts/crawler.cjs"
+            "crawl-multi-ai.cjs"
+            "crawl-multi-source.cjs"
+            "crawl-supabase.cjs"
+            "crawl.cjs"
+            "crawler.cjs"
+            "index.cjs"
+          )
+          FOUND=""
+          for f in "${CANDIDATES[@]}"; do
+            if [ -f "$f" ]; then FOUND="$f"; break; fi
+          done
+          if [ -z "$FOUND" ]; then
+            echo "No crawler script found; skipping crawl."
+            exit 0
+          fi
+          echo "Using crawler: $FOUND"
+          node "$FOUND"
+
+      - name: Export to public (root or scripts/)
+        shell: bash
+        run: |
+          set -e
+          if [ -f scripts/export-to-public.cjs ]; then
+            echo "Exporting via scripts/export-to-public.cjs"
+            node scripts/export-to-public.cjs
+          elif [ -f export-to-public.cjs ]; then
+            echo "Exporting via root export-to-public.cjs"
+            node export-to-public.cjs
+          else
+            echo "No export-to-public script found at root or scripts/ — skipping."
+          fi
+
+      - name: Verify latest inserts (last 12h)
+        run: node scripts/verify-latest.cjs
+
+      - name: Show feed summary
+        shell: bash
+        run: |
+          set -e
+          node - <<'JS'
+          const fs = require('fs');
+          const path = require('path');
+          const feedPath = path.join('public', 'feed.json');
+          const metaPath = path.join('public', 'feed_meta.json');
+          if (!fs.existsSync(feedPath)) {
+            console.log('feed.json not found');
+            process.exit(1);
+          }
+          const feed = JSON.parse(fs.readFileSync(feedPath, 'utf8'));
+          console.log('Items:', Array.isArray(feed) ? feed.length : 0);
+          console.log('First title:', (Array.isArray(feed) && feed[0] && feed[0].title) || '(none)');
+          if (fs.existsSync(metaPath)) {
+            const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+            console.log('Generated at:', meta.generatedAt);
+            console.log('Item count in meta:', meta.itemCount);
+          } else {
+            console.log('feed_meta.json not found');
+          }
+          JS
+
+      - name: Upload feed artifact
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: public-feed
+          path: |
+            public/feed.json
+            public/feed_meta.json
+
+      - name: Commit & push changes
+        shell: bash
+        run: |
+          set -e
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "chore: auto update news [skip ci]" || echo "No changes to commit"
+          git push
