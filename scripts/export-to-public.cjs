@@ -60,7 +60,6 @@ async function main() {
     const imageUrl = pick(it, ["image_url", "imageUrl", "image", "thumbnail", "thumb", "cover"], "");
     const imageAttribution = pick(it, ["image_attribution", "attribution", "image_credit", "credit"], "");
 
-    // derive source from hostname if missing
     if (!source && url) {
       try { source = new URL(url).hostname.replace(/^www\./, ""); } catch {}
     }
@@ -68,7 +67,6 @@ async function main() {
     return { title, summary, url, source, publishedAt, imageUrl, imageAttribution };
   });
 
-  // write files
   const feedPath = path.join(OUT_DIR, "feed.json");
   const metaPath = path.join(OUT_DIR, "feed_meta.json");
 
