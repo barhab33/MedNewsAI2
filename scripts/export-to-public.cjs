@@ -1,56 +1,84 @@
 /**
- * Export latest items from `medical_news` to /public for your static site.
- * - Uses shared Supabase client (Bolt shim aware).
- * - Writes public/feed.json and a minimal public/index.html (fallback).
+ * Schema-flexible exporter:
+ * - Reads from `medical_news` with adaptive column mapping (url/link/article_url, etc.).
+ * - Tries several sort columns (published_at, created_at, inserted_at, date, id).
+ * - Outputs /public/feed.json and a simple /public/index.html.
  */
 
 const fs = require("fs");
 const path = require("path");
-
-// Friendly guard so CI errors are obvious:
-const miss = [];
-if (!process.env.VITE_BOLTDATABASE_URL && !process.env.VITE_SUPABASE_URL) miss.push("VITE_BOLTDATABASE_URL");
-if (!process.env.VITE_BOLTDATABASE_ANON_KEY && !process.env.VITE_SUPABASE_ANON_KEY) miss.push("VITE_BOLTDATABASE_ANON_KEY");
-if (miss.length) {
-  console.error("Missing database credentials:", miss.join(", "));
-  process.exit(1);
-}
-
 const { sb: supabase } = require("./lib/supabase-server.cjs");
 
 const OUT_DIR = path.join(__dirname, "..", "public");
 
-async function main() {
-  // Ensure public dir
-  fs.mkdirSync(OUT_DIR, { recursive: true });
+// Small helpers
+const pick = (row, keys, fallback = "") => {
+  for (const k of keys) {
+    if (k in row && row[k] != null) return row[k];
+  }
+  return fallback;
+};
 
-  // Fetch latest items
-  const { data, error } = await supabase
-    .from("medical_news")
-    .select("title, summary, url, source, published_at, image_url, image_attribution")
-    .order("published_at", { ascending: false })
-    .limit(200);
+async function fetchRows() {
+  // Try a few common order columns; fall back to unordered if none exist
+  const orderCandidates = [
+    "published_at",
+    "created_at",
+    "inserted_at",
+    "publishedAt",
+    "date",
+    "id"
+  ];
 
-  if (error) {
-    console.error("Supabase select error:", error);
-    process.exit(1);
+  for (const col of orderCandidates) {
+    const { data, error } = await supabase
+      .from("medical_news")
+      .select("*")
+      .order(col, { ascending: false })
+      .limit(300);
+
+    if (!error) {
+      console.log(`Export: using order by ${col}`);
+      return data || [];
+    }
+    if (error?.code !== "42703") {
+      // Not a "column does not exist" error -> surface it
+      console.error("Supabase select error:", error);
+      process.exit(1);
+    }
+    // else: column missing; try next candidate
   }
 
-  // Normalize records a bit
-  const items = (data || []).map((it) => ({
-    title: it.title || "",
-    summary: it.summary || "",
-    url: it.url || "",
-    source: it.source || "",
-    publishedAt: it.published_at || null,
-    imageUrl: it.image_url || "",
-    imageAttribution: it.image_attribution || ""
-  }));
+  // Last resort: no ordering
+  const { data, error } = await supabase.from("medical_news").select("*").limit(300);
+  if (error) {
+    console.error("Supabase select error (fallback):", error);
+    process.exit(1);
+  }
+  console.log("Export: no order column found; using unordered results.");
+  return data || [];
+}
 
-  // Write feed.json for your frontend
+async function main() {
+  fs.mkdirSync(OUT_DIR, { recursive: true });
+
+  const rows = await fetchRows();
+
+  const items = rows.map((it) => {
+    const title = pick(it, ["title", "headline", "name"], "");
+    const summary = pick(it, ["summary", "abstract", "description", "ai_summary", "gemini_summary"], "");
+    const url = pick(it, ["url", "link", "article_url", "source_url", "canonical_url"], "");
+    const source = pick(it, ["source", "site", "publisher", "domain"], "");
+    const publishedAt =
+      pick(it, ["published_at", "publishedAt", "pub_date", "date", "created_at", "inserted_at"], null) || null;
+    const imageUrl = pick(it, ["image_url", "imageUrl", "image", "thumbnail", "thumb", "cover"], "");
+    const imageAttribution = pick(it, ["image_attribution", "attribution", "image_credit", "credit"], "");
+
+    return { title, summary, url, source, publishedAt, imageUrl, imageAttribution };
+  });
+
   fs.writeFileSync(path.join(OUT_DIR, "feed.json"), JSON.stringify(items, null, 2));
 
-  // Minimal index.html fallback (your real site can ignore this if using a SPA)
   const html = `<!doctype html>
 <html lang="en">
 <head>
