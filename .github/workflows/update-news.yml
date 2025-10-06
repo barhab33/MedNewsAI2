@@ -1,9 +1,9 @@
 name: update-news
 
 on:
-  workflow_dispatch: {}        # manual Run button
+  workflow_dispatch: {}        # ✅ manual "Run workflow" button
   schedule:
-    - cron: "0 */8 * * *"      # every 8 hours
+    - cron: "0 */8 * * *"      # ✅ automatic, every 8 hours
 
 permissions:
   contents: write
@@ -48,12 +48,9 @@ jobs:
         run: |
           set -e
           echo "Node: $(node -v)"
-          echo "Root:"
-          ls -la
-          echo "scripts/:"
-          ls -la scripts || true
-          echo "public/:"
-          ls -la public || true
+          echo "Root listing:"; ls -la || true
+          echo "scripts/: "; ls -la scripts || true
+          echo "public/:  "; ls -la public || true
 
       - name: Install dependencies
         shell: bash
@@ -71,81 +68,4 @@ jobs:
           set -e
           [ -n "$VITE_BOLTDATABASE_URL" ] || { echo "❌ VITE_BOLTDATABASE_URL missing"; exit 1; }
           [ -n "$VITE_BOLTDATABASE_ANON_KEY" ] || { echo "❌ VITE_BOLTDATABASE_ANON_KEY missing"; exit 1; }
-          [ -n "$SUPABASE_SERVICE_ROLE" ] || { echo "❌ SUPABASE_SERVICE_ROLE missing"; exit 1; }
-          echo "✅ Required secrets present"
-          echo "Optional keys:"
-          for k in GEMINI_API_KEY PEXELS_API_KEY GOOGLE_API_KEY OPENAI_API_KEY ANTHROPIC_API_KEY; do
-            if [ -n "${!k}" ]; then echo "  $k: yes"; else echo "  $k: no"; fi
-          done
-
-      - name: Crawl & summarize (auto-detect script)
-        shell: bash
-        run: |
-          set -e
-          FOUND=""
-          CANDIDATES="scripts/crawl-multi-source.cjs scripts/crawl-multi-ai.cjs scripts/crawl-supabase.cjs scripts/crawl.cjs scripts/crawler.cjs crawl-multi-source.cjs crawl-multi-ai.cjs crawl-supabase.cjs crawl.cjs crawler.cjs index.cjs"
-          for f in $CANDIDATES; do
-            if [ -f "$f" ]; then
-              FOUND="$f"
-              break
-            fi
-          done
-          if [ -z "$FOUND" ]; then
-            echo "ℹ️ No crawler script found; skipping crawl."
-          else
-            echo "▶ Using crawler: $FOUND"
-            node "$FOUND"
-          fi
-
-      - name: Maintenance: normalize legacy URLs & prune (if present)
-        shell: bash
-        run: |
-          set -e
-          if [ -f scripts/maintenance-normalize.cjs ]; then
-            echo "▶ Running maintenance-normalize"
-            node scripts/maintenance-normalize.cjs
-          else
-            echo "ℹ️ No maintenance script found; skipping."
-          fi
-
-      - name: Export to public (root preferred; scripts/ fallback)
-        shell: bash
-        run: |
-          set -e
-          if [ -f export-to-public.cjs ]; then
-            echo "▶ Exporting via root export-to-public.cjs"
-            node export-to-public.cjs
-          elif [ -f scripts/export-to-public.cjs ]; then
-            echo "▶ Exporting via scripts/export-to-public.cjs"
-            node scripts/export-to-public.cjs
-          else
-            echo "❌ No export-to-public script found"
-            exit 1
-          fi
-
-      - name: Stat feed files (prove writes)
-        shell: bash
-        run: |
-          set -e
-          echo "== ls -l public =="
-          ls -l public || true
-          echo "== sha256 =="
-          if command -v sha256sum >/dev/null 2>&1; then
-            sha256sum public/feed.json public/feed_meta.json
-          else
-            shasum -a 256 public/feed.json public/feed_meta.json
-          fi
-          echo "== first 2 lines of feed.json =="
-          head -n 2 public/feed.json || true
-          echo "== meta =="
-          cat public/feed_meta.json || true
-
-      - name: Commit & push changes
-        shell: bash
-        run: |
-          set -e
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -m "chore: auto update news [skip ci]" || echo "No changes to commit"
-          git push || true
+          [ -n "$SU]()
