@@ -1,27 +1,20 @@
 name: update-news
 
 on:
+  workflow_dispatch: {}        # makes the "Run workflow" button appear
   schedule:
-    - cron: "0 */8 * * *"   # every 8 hours
-  workflow_dispatch: {}
-
-permissions:
-  contents: write
-  actions: read
-  id-token: write
-
-concurrency:
-  group: update-news
-  cancel-in-progress: false
+    - cron: "0 */8 * * *"      # every 8 hours
 
 jobs:
-  run-pipeline:
+  run:
     runs-on: ubuntu-latest
 
     env:
+      # Required
       VITE_BOLTDATABASE_URL: ${{ secrets.VITE_BOLTDATABASE_URL }}
       VITE_BOLTDATABASE_ANON_KEY: ${{ secrets.VITE_BOLTDATABASE_ANON_KEY }}
       SUPABASE_SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE }}
+      # Optional (summaries/images)
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -41,12 +34,11 @@ jobs:
           node-version: "20"
           cache: "npm"
 
-      - name: Show basic debug
+      - name: Quick sanity
         shell: bash
         run: |
           set -e
-          node -v
-          npm -v
+          echo "Node: $(node -v)"
           echo "Repo root:"
           ls -la
           echo "scripts/:"
@@ -68,9 +60,9 @@ jobs:
         shell: bash
         run: |
           set -e
-          [ -n "$VITE_BOLTDATABASE_URL" ] || { echo "❌ VITE_BOLTDATABASE_URL is missing (set it in repo Settings → Secrets → Actions)"; exit 1; }
-          [ -n "$VITE_BOLTDATABASE_ANON_KEY" ] || { echo "❌ VITE_BOLTDATABASE_ANON_KEY is missing"; exit 1; }
-          [ -n "$SUPABASE_SERVICE_ROLE" ] || { echo "❌ SUPABASE_SERVICE_ROLE is missing (needed for DB writes under RLS)"; exit 1; }
+          [ -n "$VITE_BOLTDATABASE_URL" ] || { echo "❌ VITE_BOLTDATABASE_URL missing"; exit 1; }
+          [ -n "$VITE_BOLTDATABASE_ANON_KEY" ] || { echo "❌ VITE_BOLTDATABASE_ANON_KEY missing"; exit 1; }
+          [ -n "$SUPABASE_SERVICE_ROLE" ] || { echo "❌ SUPABASE_SERVICE_ROLE missing"; exit 1; }
           echo "✅ Required secrets present"
           echo "Optional keys:"
           for k in GEMINI_API_KEY PEXELS_API_KEY GOOGLE_API_KEY OPENAI_API_KEY ANTHROPIC_API_KEY; do
@@ -101,78 +93,3 @@ jobs:
           if [ -z "$FOUND" ]; then
             echo "ℹ️ No crawler script found; skipping crawl."
           else
-            echo "▶ Using crawler: $FOUND"
-            node "$FOUND"
-          fi
-
-      - name: Maintenance: normalize legacy URLs & prune (if present)
-        shell: bash
-        run: |
-          set -e
-          if [ -f scripts/maintenance-normalize.cjs ]; then
-            echo "▶ Running maintenance-normalize"
-            node scripts/maintenance-normalize.cjs
-          else
-            echo "ℹ️ No maintenance script found; skipping."
-          fi
-
-      - name: Export to public (root preferred; scripts/ fallback)
-        shell: bash
-        run: |
-          set -e
-          if [ -f export-to-public.cjs ]; then
-            echo "▶ Exporting via root export-to-public.cjs"
-            node export-to-public.cjs
-          elif [ -f scripts/export-to-public.cjs ]; then
-            echo "▶ Exporting via scripts/export-to-public.cjs"
-            node scripts/export-to-public.cjs
-          else
-            echo "❌ No export-to-public script found at root or scripts/"
-            exit 1
-          fi
-
-      - name: Stat feed files (prove writes)
-        shell: bash
-        run: |
-          set -e
-          echo "== ls -l public =="
-          ls -l public || true
-          echo "== sha256 =="
-          if command -v sha256sum >/dev/null 2>&1; then
-            sha256sum public/feed.json public/feed_meta.json
-          else
-            shasum -a 256 public/feed.json public/feed_meta.json
-          fi
-          echo "== first 2 lines of feed.json =="
-          head -n 2 public/feed.json || true
-          echo "== meta =="
-          cat public/feed_meta.json || true
-
-      - name: Verify latest inserts (last 12h) (if present)
-        shell: bash
-        run: |
-          set -e
-          if [ -f scripts/verify-latest.cjs ]; then
-            node scripts/verify-latest.cjs
-          else
-            echo "ℹ️ No verify-latest.cjs found; skipping."
-          fi
-
-      - name: Upload feed artifact
-        if: ${{ always() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: public-feed
-          path: |
-            public/feed.json
-            public/feed_meta.json
-
-      - name: Commit & push changes
-        shell: bash
-        run: |
-          set -e
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -m "chore: auto update news [skip ci]" || echo "No changes to commit"
-          git push
