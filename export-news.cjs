@@ -1,36 +1,27 @@
-const { Client } = require('pg');
-const fs = require('fs');
+/**
+ * Example server-side export that reads from `medical_news`.
+ * Use this if you had an older exporter with hard-coded passwords—this one uses the shared client.
+ */
+const fs = require("fs");
+const path = require("path");
+const { sb: supabase } = require("./lib/supabase-server.cjs");
 
-const client = new Client({
-  host: 'db.qhyrfjletazbsjsfosdl.supabase.co',
-  port: 5432,
-  user: 'postgres',
-  password: '8ZKt+2D2_2s4fyE',
-  database: 'postgres',
-  ssl: { rejectUnauthorized: false }
-});
+async function main() {
+  const { data, error } = await supabase
+    .from("medical_news")
+    .select("title,summary,url,source,published_at,image_url,image_attribution")
+    .order("published_at", { ascending: false })
+    .limit(500);
 
-async function exportNews() {
-  await client.connect();
-  console.log('✓ Connected to database');
+  if (error) {
+    console.error("Supabase error:", error);
+    process.exit(1);
+  }
 
-  const result = await client.query(
-    'SELECT * FROM medical_news ORDER BY published_at DESC'
-  );
-
-  const newsData = result.rows;
-  console.log(`✓ Fetched ${newsData.length} articles`);
-
-  fs.mkdirSync('public', { recursive: true });
-
-  fs.writeFileSync(
-    'public/news-data.json',
-    JSON.stringify(newsData, null, 2)
-  );
-
-  console.log('✓ Exported to public/news-data.json');
-
-  await client.end();
+  const out = path.join(__dirname, "..", "data", "export.json");
+  fs.mkdirSync(path.dirname(out), { recursive: true });
+  fs.writeFileSync(out, JSON.stringify(data || [], null, 2));
+  console.log("Wrote", (data || []).length, "records to", out);
 }
 
-exportNews().catch(console.error);
+main().catch((e) => { console.error(e); process.exit(1); });
