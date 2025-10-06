@@ -1,41 +1,84 @@
-name: Manual Update Medical News
+name: manual-update
 
 on:
-  workflow_dispatch:  # Manual trigger only
+  workflow_dispatch: {}   # Run manually from the Actions tab
+
+permissions:
+  contents: write
+  actions: read
+  id-token: write
+
+concurrency:
+  group: manual-update
+  cancel-in-progress: false
 
 jobs:
-  update-news:
+  run-pipeline:
     runs-on: ubuntu-latest
 
+    env:
+      # Bolt DB envs (shim will also accept SUPABASE_* if you add them later)
+      VITE_BOLTDATABASE_URL: ${{ secrets.VITE_BOLTDATABASE_URL }}
+      VITE_BOLTDATABASE_ANON_KEY: ${{ secrets.VITE_BOLTDATABASE_ANON_KEY }}
+      # If any script WRITES to DB (insert/update), include the service role:
+      SUPABASE_SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE }}
+      # AI keys if your crawler uses them:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "20"
+          cache: "npm"
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Run crawler
-        env:
-          BOLTDATABASE_DB_PASSWORD: ${{ secrets.BOLTDATABASE_DB_PASSWORD }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-        run: node crawl-multi-ai.cjs
-
-      - name: Export to public JSON
-        env:
-          BOLTDATABASE_DB_PASSWORD: ${{ secrets.BOLTDATABASE_DB_PASSWORD }}
-        run: node export-to-public.cjs
-
-      - name: Commit and push updates
+      - name: Debug env presence
+        shell: bash
         run: |
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git config --global user.name "github-actions[bot]"
-          git add public/news-data.json
-          git diff --quiet && git diff --staged --quiet || (git commit -m "Manual update news [skip ci]" && git push)
+          set -e
+          [ -n "$VITE_BOLTDATABASE_URL" ] && echo "VITE_BOLTDATABASE_URL set" || (echo "VITE_BOLTDATABASE_URL MISSING" && exit 1)
+          [ -n "$VITE_BOLTDATABASE_ANON_KEY" ] && echo "VITE_BOLTDATABASE_ANON_KEY set" || (echo "VITE_BOLTDATABASE_ANON_KEY MISSING" && exit 1)
+
+      - name: Crawl & summarize (if script exists)
+        shell: bash
+        run: |
+          set -e
+          if [ -f scripts/crawl-supabase.cjs ]; then
+            echo "Running crawler: scripts/crawl-supabase.cjs"
+            node scripts/crawl-supabase.cjs
+          else
+            echo "No crawler found at scripts/crawl-supabase.cjs — skipping."
+          fi
+
+      - name: Export to public (root or scripts/)
+        shell: bash
+        run: |
+          set -e
+          if [ -f scripts/export-to-public.cjs ]; then
+            echo "Exporting via scripts/export-to-public.cjs"
+            node scripts/export-to-public.cjs
+          elif [ -f export-to-public.cjs ]; then
+            echo "Exporting via root export-to-public.cjs"
+            node export-to-public.cjs
+          else
+            echo "No export-to-public script found at root or scripts/ — skipping."
+          fi
+
+      - name: Commit & push changes
+        shell: bash
+        run: |
+          set -e
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "chore: manual update news [skip ci]" || echo "No changes to commit"
+          git push
