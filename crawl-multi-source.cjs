@@ -1,304 +1,78 @@
-const { Client } = require('pg');
-const https = require('https');
+/**
+ * crawl-multi-source.cjs (root)
+ *
+ * Same as scripts version, just adjusts the import path for the shared Supabase client.
+ */
 
-const client = new Client({
-  host: 'db.qhyrfjletazbsjsfosdl.supabase.co',
-  port: 5432,
-  user: 'postgres',
-  password: '8ZKt+2D2_2s4fyE',
-  database: 'postgres',
-  ssl: { rejectUnauthorized: false }
-});
+const { sb: supabase } = require("./scripts/lib/supabase-server.cjs");
 
-const GOOGLE_NEWS_QUERIES = [
-  'artificial intelligence healthcare breakthrough',
-  'AI medical diagnosis',
-  'machine learning drug discovery',
-  'AI radiology imaging',
-  'deep learning cancer detection',
-  'AI surgical robotics',
-  'medical AI FDA approval',
-  'AI clinical trials',
-  'healthcare AI research',
-  'medical AI technology',
+// ------------------ Config ------------------
+const GN = (q) =>
+  `https://news.google.com/rss/search?q=${encodeURIComponent(q + " when:1d")}&hl=en-US&gl=US&ceid=US:en`;
+
+const FEEDS = [
+  GN("(medical AI) OR (health AI)"),
+  GN("(clinical AI) OR (biomedical AI)"),
+  GN("radiology AI OR imaging AI"),
+  GN("oncology AI OR cancer AI"),
+  GN("FDA AI medical device OR \"machine learning\" device"),
+  "https://www.nature.com/subjects/medical-ai/rss",
+  "https://www.nature.com/subjects/health-informatics/rss",
+  "https://www.medrxiv.org/rss.xml",
+  "https://www.fiercebiotech.com/rss/xml",
+  "https://www.fiercepharma.com/rss/xml",
+  "https://www.statnews.com/feed/"
 ];
 
-function fetchURL(url) {
-  return new Promise((resolve, reject) => {
-    https.get(url, (res) => {
-      let data = '';
-      res.on('data', chunk => data += chunk);
-      res.on('end', () => resolve(data));
-    }).on('error', reject);
-  });
-}
+const MAX_ITEMS_PER_FEED = 25;
+const MAX_CANDIDATES = 120;
+const TAKE_TOP = 10;
+const ORDER_CANDIDATES = ["published_at", "created_at", "inserted_at", "date", "id"];
 
-function parseRSS(xml) {
-  const items = [];
-  const itemRegex = /<item>([\s\S]*?)<\/item>/g;
-  let match;
+const GEMINI_MODEL = "models/gemini-1.5-flash";
+const GEMINI_KEY = process.env.GEMINI_API_KEY || "";
+const PEXELS_KEY = process.env.PEXELS_API_KEY || "";
 
-  while ((match = itemRegex.exec(xml)) !== null) {
-    const item = match[1];
+// ------------------ Helpers (same as scripts file) ------------------
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const stripHtml = (s = "") => s.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+function normalizeUrl(raw) { try { const u = new URL(raw); u.hash=""; u.host=u.host.toLowerCase(); const STRIP_PREFIXES=["utm_","fbclid","gclid","mc_cid","mc_eid","igshid"]; const keep=[]; for (const [k,v] of u.searchParams.entries()){const lower=k.toLowerCase(); const isTracking=STRIP_PREFIXES.some(p=>lower.startsWith(p))||lower==="fbclid"||lower==="gclid"; if(!isTracking) keep.push([k,v]);} keep.sort(([a],[b])=>a.localeCompare(b)); u.search=""; for (const [k,v] of keep) u.searchParams.append(k,v); if (u.pathname==="/") u.pathname=""; return u.toString(); } catch { return raw; } }
+const isGoogleNewsLink = (u) => /^https?:\/\/news\.google\.com\/rss\//i.test(u || "");
+const hostnameOf = (u) => { try { return new URL(u).hostname.replace(/^www\./,""); } catch { return ""; } };
+function textBetween(xml, tag){ const open=`<${tag}`; const close=`</${tag}>`; const out=[]; let i=0; while(true){ const s=xml.indexOf(open,i); if(s===-1) break; const s2=xml.indexOf(">",s); if(s2===-1) break; const e=xml.indexOf(close,s2+1); if(e===-1) break; out.push(xml.substring(s2+1,e)); i=e+close.length; } return out; }
+const firstTag = (c,t)=> (textBetween(c,t)[0]||"").trim();
+const tryAttrLink = (c)=> (c.match(/<link[^>]*\bhref="([^"]+)"/i)||[])[1]||"";
 
-    const title = (item.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>/) ||
-                   item.match(/<title>(.*?)<\/title>/))?.[1] || '';
+async function fetchRss(url){ const res=await fetch(url,{ headers:{ "user-agent":"MedNewsAI/1.0" } }); if(!res.ok) throw new Error(`RSS fetch failed ${res.status} for ${url}`); const xml=await res.text(); const chunks=textBetween(xml,"item").concat(textBetween(xml,"entry")); const items=chunks.map((chunk)=>{ const title=stripHtml((firstTag(chunk,"title")||"").replace(/<!\[CDATA\[|\]\]>/g,"")); const desc=stripHtml((firstTag(chunk,"description")||firstTag(chunk,"content")||"").replace(/<!\[CDATA\[|\]\]>/g,"")); let link=stripHtml((firstTag(chunk,"link")||tryAttrLink(chunk)||"").replace(/<!\[CDATA\[|\]\]>/g,"")); const src=stripHtml((firstTag(chunk,"source")||firstTag(chunk,"author")||"").replace(/<!\[CDATA\[|\]\]>/g,"")); const date=stripHtml((firstTag(chunk,"pubDate")||firstTag(chunk,"updated")||firstTag(chunk,"published")||"").replace(/<!\[CDATA\[|\]\]>/g,"")); if(!/^https?:\/\//i.test(link)) link=""; return { title, url: link, source: src, pubDate: date, description: desc }; }).filter(it => it.url); return items.slice(0, MAX_ITEMS_PER_FEED); }
+async function unwrapGoogleNews(url){ try{ if(!isGoogleNewsLink(url)) return url; const r=await fetch(url,{ redirect:"follow", method:"HEAD" }); if(r.ok) return normalizeUrl(r.url || url); } catch{} return normalizeUrl(url); }
+async function gatherCandidates(){ const out=[]; for(const f of FEEDS){ try{ const items=await fetchRss(f); out.push(...items); } catch(e){ console.error("Feed error:", f, e.message || e); } if(out.length>=MAX_CANDIDATES) break; await sleep(150); } return out.slice(0, MAX_CANDIDATES); }
+function parseDate(d){ const t=Date.parse(d); return Number.isFinite(t)?t:0; }
+function relevanceScore({title,description,url,pubDate}){ const t=`${title} ${description}`.toLowerCase(); let score=0; if(/\b(ai|artificial intelligence|machine learning|deep learning|llm|transformer)s?\b/i.test(t)) score+=5; if(/\b(medical|health|clinical|hospital|radiology|oncology|cardiology|biomedical|diagnos|drug|trial|patient|doctor)s?\b/i.test(t)) score+=4; if(/\b(preprint|study|randomized|peer[- ]?review|journal|trial)\b/i.test(t)) score+=2; if(/\b(opinion|sponsored|advertorial)\b/i.test(t)) score-=3; if(!isGoogleNewsLink(url)) score+=1; const now=Date.now(); const ts=parseDate(pubDate); if(ts){ const days=Math.max(0,(now-ts)/(24*3600*1000)); score+=Math.max(0,7-days); } return score; }
+function dedupeInMemoryByUrl(items){ const seen=new Set(); return items.filter(it=>{ const key=normalizeUrl(it.url||""); if(!key||seen.has(key)) return false; seen.add(key); it.url=key; return true; }); }
+async function rankAndSelect(rawItems){ const pre=[]; for(const it of rawItems){ const unwrapped=await unwrapGoogleNews(it.url); const norm=normalizeUrl(unwrapped); const host=hostnameOf(norm); pre.push({ title: it.title, description: it.description, url: norm, source: it.source || (host ? (host==="news.google.com"?"Google News":host) : ""), pubDate: it.pubDate }); await sleep(10); } const uniq=dedupeInMemoryByUrl(pre); const scored=uniq.map(it=>({ ...it, score: relevanceScore(it) })); scored.sort((a,b)=>(b.score-a.score)||(parseDate(b.pubDate)-parseDate(a.pubDate))); return scored; }
 
-    const link = (item.match(/<link>(.*?)<\/link>/) ||
-                  item.match(/<guid[^>]*>(.*?)<\/guid>/))?.[1] || '';
+async function fetchExistingUrls(urls){ if(urls.length===0) return new Set(); const existed=new Set(); const chunk=100; for(let i=0;i<urls.length;i+=chunk){ const slice=urls.slice(i,i+chunk); const { data, error } = await supabase.from("medical_news").select("url").in("url", slice); if(!error && Array.isArray(data)) data.forEach(r=>r?.url && existed.add(r.url)); else if(error) console.error("fetchExistingUrls error:", error); await sleep(10); } return existed; }
+async function pickOrderColumn(){ for(const col of ORDER_CANDIDATES){ try{ await supabase.from("medical_news").select("id",{ head:true }).order(col,{ ascending:false }).limit(1); return col; } catch(e){ if(e?.code && e.code!=="42703") throw e; } } return "id"; }
+async function pruneToNewest(limit=10){ const orderCol=await pickOrderColumn(); const { data: keepRows, error: selErr } = await supabase.from("medical_news").select("id").order(orderCol,{ ascending:false }).limit(limit); if(selErr){ console.error("prune select error:", selErr); return; } const keepIds=(keepRows||[]).map(r=>r.id); if(keepIds.length===0) return; const { error: delErr } = await supabase.from("medical_news").delete().not("id","in",`(${keepIds.join(",")})`); if(delErr) console.error("prune delete error:", delErr); else console.log(`Pruned table to newest ${keepIds.length} rows (ordered by ${orderCol}).`); }
+async function dedupeByUrlInDb(){ const orderCol=await pickOrderColumn(); const { data, error } = await supabase.from("medical_news").select("id,url,published_at,created_at").order(orderCol,{ ascending:false }).limit(200); if(error){ console.error("dedupe select error:", error); return; } const byUrl=new Map(); for(const r of data||[]){ const url=r.url||""; if(!url) continue; const ts=Date.parse(r.published_at || r.created_at || 0) || 0; const prev=byUrl.get(url); if(!prev || ts>prev.ts || (ts===prev.ts && r.id>prev.id)){ byUrl.set(url,{ ts, keep: r.id }); } } const keepSet=new Set(Array.from(byUrl.values()).map(v=>v.keep)); const dupes=(data||[]).map(r=>r.id).filter(id=>!keepSet.has(id)); if(dupes.length===0){ console.log("De-dup: nothing to remove."); return; } const { error: delErr } = await supabase.from("medical_news").delete().in("id", dupes); if(delErr) console.error("De-dup delete error:", delErr); else console.log(`De-dup: removed ${dupes.length} older duplicate row(s) by url.`); }
 
-    const pubDate = (item.match(/<pubDate>(.*?)<\/pubDate>/))?.[1] || new Date().toISOString();
+async function geminiSummarize({ title, description, url }){ if(!GEMINI_KEY) return null; const base="https://generativelanguage.googleapis.com/v1beta"; const endpoint=`${base}/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(GEMINI_KEY)}`; const prompt=`You are an assistant creating concise, neutral summaries of Medical/Health AI news.
+Write 2–3 short bullet points (plain text; no markdown bullets) with core finding, context, and any caveats.
+Avoid hype. Include specific model/study names if present.
 
-    if (title && link) {
-      items.push({ title: title.trim(), link: link.trim(), pubDate });
-    }
-  }
+Title: ${title}
 
-  return items;
-}
+Snippet:
+${description}
 
-function extractSourceFromTitle(title) {
-  const match = title.match(/ - ([^-]+)$/);
-  if (match) {
-    const source = match[1].trim();
-    if (source && source.length < 50 && !source.includes('http')) {
-      return source;
-    }
-  }
+Link: ${url}`; const body={ contents:[{ role:"user", parts:[{ text: prompt.slice(0,8000) }]}], generationConfig:{ temperature:0.2, maxOutputTokens:256 } }; try{ const res=await fetch(endpoint,{ method:"POST", headers:{ "content-type":"application/json" }, body: JSON.stringify(body) }); if(!res.ok) throw new Error(`Gemini ${res.status}: ${await res.text()}`); const json=await res.json(); const text=json?.candidates?.[0]?.content?.parts?.map(p=>p.text).join("\n").trim(); return (text||"").replace(/\s+\n/g,"\n").trim(); } catch(e){ console.error("Gemini error:", e.message || e); return null; } }
+async function fetchHtml(url){ try{ const r=await fetch(url,{ headers:{ "user-agent":"MedNewsAI/1.0 (+https://mednewsai.com)" } }); if(!r.ok) return null; return await r.text(); } catch { return null; } }
+const absolutize=(base,maybe)=>{ try{ return new URL(maybe, base).toString(); } catch { return ""; } };
+const looksLikeLogo=(u="")=>{ const x=u.toLowerCase(); return x.includes("logo")||x.includes("sprite")||x.includes("icon")||x.endsWith(".svg"); };
+function extractOgImage(html, baseUrl){ if(!html) return ""; const metas=[ /<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["'][^>]*>/i, /<meta[^>]+name=["']og:image["'][^>]+content=["']([^"']+)["'][^>]*>/i, /<meta[^>]+name=["']twitter:image["'][^>]+content=["']([^"']+)["'][^>]*>/i, /<link[^>]+rel=["']image_src["'][^>]+href=["']([^"']+)["'][^>]*>/i ]; for(const re of metas){ const m=html.match(re); if(m&&m[1]){ const abs=absolutize(baseUrl, m[1].trim()); if(abs && !looksLikeLogo(abs) && abs.startsWith("http")) return abs; } } const im=html.match(/<img[^>]+src=["']([^"']+)["']/i); if(im&&im[1]){ const abs=absolutize(baseUrl, im[1].trim()); if(abs && !looksLikeLogo(abs) && abs.startsWith("http")) return abs; } return ""; }
+async function discoverImageForArticle({ title, url }){ const html=await fetchHtml(url); const og=extractOgImage(html||"", url); if(og) return { image_url: og, image_attribution: "" }; if(PEXELS_KEY){ try{ const q=encodeURIComponent((title||"").replace(/[:\-–|]/g," ").slice(0,60)+" medical AI"); const api=`https://api.pexels.com/v1/search?query=${q}&per_page=1`; const res=await fetch(api,{ headers:{ Authorization: PEXELS_KEY } }); if(res.ok){ const json=await res.json(); const photo=json.photos?.[0]; if(photo?.src?.large){ return { image_url: photo.src.large, image_attribution: `Photo: ${photo.photographer || "Pexels"} / Pexels (${photo.url || "https://www.pexels.com"})` }; } } else console.warn("Pexels error:", res.status); } catch(e){ console.warn("Pexels fetch failed:", e.message || e); } } return { image_url: "", image_attribution: "" }; }
 
-  const sources = ['Nature', 'Science', 'MIT News', 'Stanford', 'NIH', 'FDA', 'Google', 'DeepMind',
-                   'JAMA', 'Lancet', 'NEJM', 'Forbes', 'Reuters', 'BBC', 'CNN Health', 'Harvard',
-                   'Johns Hopkins', 'Mayo Clinic', 'Cleveland Clinic', 'Wired', 'TechCrunch'];
-  for (const source of sources) {
-    if (title.toLowerCase().includes(source.toLowerCase())) {
-      return source;
-    }
-  }
+async function upsertByUrl_NoIndex(row){ const { data: existing, error: selErr } = await supabase.from("medical_news").select("id").eq("url", row.url).limit(1); if(selErr){ console.error("select existing error:", selErr); return false; } if(existing && existing.length){ const id=existing[0].id; const { error: updErr } = await supabase.from("medical_news").update(row).eq("id", id); if(updErr){ console.error("update error:", updErr); return false; } return true; } const { error: insErr } = await supabase.from("medical_news").insert([row]); if(insErr){ console.error("insert error:", insErr); return false; } return true; }
 
-  return 'Medical News Network';
-}
-
-function cleanTitle(title) {
-  const match = title.match(/^(.*?)\s*-\s*[^-]+$/);
-  if (match && match[1].length > 20) {
-    return match[1].trim();
-  }
-  return title;
-}
-
-function categorizeArticle(title) {
-  const text = title.toLowerCase();
-
-  if (text.match(/diagnos|detect|screen|identif/)) return 'Diagnostics';
-  if (text.match(/imag|scan|x-ray|mri|ct|radiolog/)) return 'Medical Imaging';
-  if (text.match(/surg|operat|robot/)) return 'Surgery';
-  if (text.match(/drug|pharmac|compound|molecul|discover/)) return 'Drug Discovery';
-  if (text.match(/genom|dna|gene|sequenc/)) return 'Genomics';
-  if (text.match(/patient|care|treatment|therap/)) return 'Patient Care';
-  if (text.match(/trial|clinic|study/)) return 'Clinical Trials';
-  if (text.match(/telemed|remote|virtual|digital health/)) return 'Telemedicine';
-
-  return 'Research';
-}
-
-function generateRichSummary(title, category, source) {
-  const cleanedTitle = cleanTitle(title);
-
-  const summaries = {
-    'Diagnostics': [
-      `New AI diagnostic system shows promising results in early disease detection. ${cleanedTitle} represents a significant advancement in medical diagnostics, with potential to improve patient outcomes through earlier intervention.`,
-      `Breakthrough in AI-powered diagnostics enhances accuracy and speed. ${cleanedTitle} demonstrates how machine learning can augment clinical decision-making and reduce diagnostic errors.`,
-      `Advanced artificial intelligence transforms diagnostic capabilities. ${cleanedTitle} showcases cutting-edge technology that could revolutionize how doctors identify and treat diseases.`
-    ],
-    'Medical Imaging': [
-      `Revolutionary AI imaging technology improves diagnostic precision. ${cleanedTitle} leverages deep learning to analyze medical images with unprecedented accuracy, potentially saving lives through faster diagnosis.`,
-      `Artificial intelligence enhances radiology workflow and accuracy. ${cleanedTitle} represents major progress in automated image analysis, helping radiologists detect abnormalities earlier.`,
-      `New machine learning model transforms medical imaging analysis. ${cleanedTitle} demonstrates how AI can assist healthcare professionals in interpreting complex imaging data.`
-    ],
-    'Surgery': [
-      `AI-powered surgical robotics advance precision medicine. ${cleanedTitle} shows how intelligent systems are enhancing surgical outcomes and reducing complications.`,
-      `Breakthrough in robotic surgery supported by artificial intelligence. ${cleanedTitle} represents the next generation of surgical technology, improving patient safety and recovery times.`,
-      `Machine learning optimizes surgical planning and execution. ${cleanedTitle} demonstrates innovative applications of AI in the operating room.`
-    ],
-    'Drug Discovery': [
-      `Artificial intelligence accelerates pharmaceutical development. ${cleanedTitle} showcases how machine learning is revolutionizing the drug discovery process, potentially bringing new treatments to patients faster.`,
-      `AI-driven drug discovery platform identifies promising candidates. ${cleanedTitle} represents a major advancement in computational pharmacology and personalized medicine.`,
-      `Machine learning transforms traditional drug development pipeline. ${cleanedTitle} demonstrates how AI can reduce costs and timeframes in bringing new therapies to market.`
-    ],
-    'Clinical Trials': [
-      `AI technology optimizes clinical trial design and execution. ${cleanedTitle} shows how intelligent systems are improving patient recruitment, monitoring, and outcomes in medical research.`,
-      `Machine learning enhances clinical research efficiency. ${cleanedTitle} demonstrates innovative approaches to accelerating medical breakthroughs through better trial management.`,
-      `Artificial intelligence transforms patient matching and trial protocols. ${cleanedTitle} represents significant progress in making clinical research more effective and accessible.`
-    ],
-    'Research': [
-      `Groundbreaking research demonstrates AI's potential in healthcare. ${cleanedTitle} contributes to our understanding of how machine learning can transform medical practice.`,
-      `New study showcases artificial intelligence applications in medicine. ${cleanedTitle} represents important progress in developing AI-powered healthcare solutions.`,
-      `Researchers unveil innovative AI healthcare technology. ${cleanedTitle} demonstrates cutting-edge approaches to improving patient care through intelligent systems.`
-    ]
-  };
-
-  const categoryTemplates = summaries[category] || summaries['Research'];
-  const template = categoryTemplates[Math.floor(Math.random() * categoryTemplates.length)];
-
-  return template;
-}
-
-function generateDetailedContent(title, summary, category, source) {
-  const cleanedTitle = cleanTitle(title);
-
-  const intro = summary;
-
-  const context = `This development, reported by ${source}, highlights the rapid advancement of artificial intelligence in healthcare. ` +
-    `As AI technology matures, we're seeing increasingly sophisticated applications across medical specialties, ` +
-    `from improving diagnostic accuracy to optimizing treatment protocols.`;
-
-  const implications = category === 'Diagnostics'
-    ? `The implications for diagnostic medicine are profound. AI systems can analyze vast amounts of patient data in seconds, identifying patterns that might take human clinicians much longer to detect. This technology has the potential to catch diseases earlier, when they're most treatable, and reduce healthcare costs by minimizing unnecessary tests.`
-    : category === 'Drug Discovery'
-    ? `For pharmaceutical development, AI offers unprecedented opportunities to accelerate the discovery process. Traditional drug development can take over a decade and cost billions. Machine learning models can screen millions of compounds virtually, predict drug interactions, and identify promising candidates much faster than conventional methods.`
-    : category === 'Surgery'
-    ? `In surgical applications, AI-powered robotics provide enhanced precision, reduce human error, and enable minimally invasive procedures. These systems can analyze patient data in real-time during operations, providing surgeons with critical insights and decision support that improve patient outcomes.`
-    : `This research contributes to a growing body of evidence demonstrating AI's transformative potential in healthcare. As these technologies continue to evolve, they promise to make medical care more personalized, accessible, and effective for patients worldwide.`;
-
-  const future = `Looking ahead, the integration of AI in healthcare will likely accelerate, with more institutions adopting these technologies. ` +
-    `However, challenges remain around regulatory approval, data privacy, clinical validation, and ensuring these tools augment rather than replace human expertise. ` +
-    `Continued research, ethical guidelines, and collaboration between technologists and clinicians will be essential to realizing AI's full potential in medicine.`;
-
-  return `${intro}\n\n${context}\n\n${implications}\n\n${future}`;
-}
-
-async function crawlGoogleNews() {
-  const articles = [];
-  const seenTitles = new Set();
-
-  for (const query of GOOGLE_NEWS_QUERIES) {
-    try {
-      const encodedQuery = encodeURIComponent(query);
-      const url = `https://news.google.com/rss/search?q=${encodedQuery}&hl=en-US&gl=US&ceid=US:en`;
-
-      console.log(`\n🔍 Searching: "${query}"...`);
-      const xml = await fetchURL(url);
-      const items = parseRSS(xml);
-
-      console.log(`  Found ${items.length} articles`);
-
-      for (const item of items.slice(0, 10)) {
-        const cleanedTitle = cleanTitle(item.title);
-
-        if (seenTitles.has(cleanedTitle) || cleanedTitle.length < 20) {
-          continue;
-        }
-
-        seenTitles.add(cleanedTitle);
-
-        const source = extractSourceFromTitle(item.title);
-        const category = categorizeArticle(cleanedTitle);
-        const summary = generateRichSummary(item.title, category, source);
-        const content = generateDetailedContent(item.title, summary, category, source);
-
-        const imageMap = {
-          'Diagnostics': 'https://images.pexels.com/photos/3825517/pexels-photo-3825517.jpeg',
-          'Medical Imaging': 'https://images.pexels.com/photos/7089020/pexels-photo-7089020.jpeg',
-          'Surgery': 'https://images.pexels.com/photos/4225880/pexels-photo-4225880.jpeg',
-          'Drug Discovery': 'https://images.pexels.com/photos/3825388/pexels-photo-3825388.jpeg',
-          'Genomics': 'https://images.pexels.com/photos/3825527/pexels-photo-3825527.jpeg',
-          'Patient Care': 'https://images.pexels.com/photos/4173251/pexels-photo-4173251.jpeg',
-          'Clinical Trials': 'https://images.pexels.com/photos/3825586/pexels-photo-3825586.jpeg',
-          'Telemedicine': 'https://images.pexels.com/photos/4386467/pexels-photo-4386467.jpeg',
-          'Research': 'https://images.pexels.com/photos/8376277/pexels-photo-8376277.jpeg'
-        };
-
-        articles.push({
-          title: cleanedTitle,
-          summary,
-          content,
-          source: 'MedNewsAI Editorial Team',
-          sourceUrl: item.link,
-          originalSource: source,
-          category,
-          publishedAt: new Date(item.pubDate),
-          imageUrl: imageMap[category] || imageMap['Research']
-        });
-
-        if (articles.length >= 50) break;
-      }
-
-      if (articles.length >= 50) break;
-
-      await new Promise(resolve => setTimeout(resolve, 1500));
-    } catch (error) {
-      console.error(`  ❌ Error: ${error.message}`);
-    }
-  }
-
-  return articles;
-}
-
-async function saveToDatabase(articles) {
-  console.log(`\n💾 Saving ${articles.length} articles to database...`);
-
-  let saved = 0;
-  let duplicates = 0;
-
-  for (const article of articles) {
-    try {
-      const existing = await client.query(
-        'SELECT id FROM medical_news WHERE source_url = $1',
-        [article.sourceUrl]
-      );
-
-      if (existing.rows.length > 0) {
-        duplicates++;
-        continue;
-      }
-
-      await client.query(
-        `INSERT INTO medical_news
-        (title, summary, content, source, source_url, original_source, category, published_at, image_url)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-        [
-          article.title,
-          article.summary,
-          article.content,
-          article.source,
-          article.sourceUrl,
-          article.originalSource,
-          article.category,
-          article.publishedAt,
-          article.imageUrl
-        ]
-      );
-
-      saved++;
-      console.log(`  ✓ [${article.category}] ${article.title.substring(0, 55)}... (${article.originalSource})`);
-    } catch (error) {
-      console.error(`  ❌ Error saving article:`, error.message);
-    }
-  }
-
-  console.log(`\n✅ Saved ${saved} new articles (${duplicates} duplicates skipped)`);
-
-  const total = await client.query('SELECT COUNT(*) FROM medical_news');
-  console.log(`📊 Total articles in database: ${total.rows[0].count}`);
-}
-
-async function main() {
-  console.log('🚀 Starting Multi-Source Medical AI News Crawler\n');
-
-  await client.connect();
-  console.log('✓ Connected to database\n');
-
-  await client.query("DELETE FROM medical_news");
-  console.log('✓ Cleared old articles\n');
-
-  const articles = await crawlGoogleNews();
-
-  if (articles.length > 0) {
-    await saveToDatabase(articles);
-  }
-
-  await client.end();
-  console.log('\n✅ Crawl complete!');
-}
-
-main().catch(console.error);
+async function main(){ console.log(`Crawler start (auth: ${process.env.SUPABASE_SERVICE_ROLE ? "service-role" : "anon"})`); const raw=await gatherCandidates(); console.log(`Fetched ${raw.length} candidates`); const ranked=await rankAndSelect(raw); const candidateUrls=ranked.map(r=>r.url); const existing=await fetchExistingUrls(candidateUrls); const fresh=ranked.filter(r=>!existing.has(r.url)).slice(0, TAKE_TOP); console.log(`Selected ${fresh.length} new items to write (target ${TAKE_TOP})`); let wrote=0; for(const it of fresh){ try{ const summary=await geminiSummarize({ title: it.title, description: it.description, url: it.url }); const { image_url, image_attribution } = await discoverImageForArticle({ title: it.title, url: it.url }); const row={ title: it.title || "(untitled)", summary: summary || it.description || "", url: it.url, source: it.source || hostnameOf(it.url) || "", published_at: it.pubDate ? new Date(it.pubDate).toISOString() : new Date().toISOString(), image_url, image_attribution }; const ok=await upsertByUrl_NoIndex(row); if(ok){ wrote++; console.log(`+ Wrote: ${row.title.slice(0,100)} — ${row.url}`); } await sleep(90); } catch(e){ console.error("Item error:", it.url, e.message || e); } } console.log(`Write phase done — wrote ${wrote} item(s).`); await dedupeByUrlInDb(); await pruneToNewest(10); console.log("Crawler finished."); }
+main().catch((e)=>{ console.error(e); process.exit(1); });
