@@ -17,18 +17,23 @@ export default function Header() {
             >
               <rect width="40" height="40" rx="8" fill="#0D9488"/>
               <path
-                d="M12 20L18 26L28 14"
+                d="M20 13 L20 27 M13 20 L27 20"
                 stroke="white"
-                strokeWidth="3"
+                strokeWidth="2.5"
                 strokeLinecap="round"
-                strokeLinejoin="round"
               />
-              <circle cx="20" cy="20" r="12" stroke="white" strokeWidth="2" fill="none" opacity="0.3"/>
+              <circle cx="15" cy="15" r="1.5" fill="white"/>
+              <circle cx="25" cy="15" r="1.5" fill="white"/>
+              <circle cx="15" cy="25" r="1.5" fill="white"/>
+              <circle cx="25" cy="25" r="1.5" fill="white"/>
               <path
-                d="M20 8 Q26 12 26 20 Q26 28 20 32 Q14 28 14 20 Q14 12 20 8"
-                fill="white"
-                opacity="0.15"
+                d="M20 8 L20 10 M20 30 L20 32 M8 20 L10 20 M30 20 L32 20"
+                stroke="white"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                opacity="0.5"
               />
+              <circle cx="20" cy="20" r="3" fill="white" opacity="0.3"/>
             </svg>
             <h1 className="text-lg font-bold text-gray-900 py-2">MedNewsAI</h1>
           </div>
