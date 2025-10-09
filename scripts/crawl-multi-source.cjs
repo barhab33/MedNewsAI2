@@ -554,7 +554,8 @@ async function main() {
         original_source: it.source || hostnameOf(it.url) || "Unknown",
         category: category || "Research",
         published_at: it.pubDate ? new Date(it.pubDate).toISOString() : new Date().toISOString(),
-        image_url
+        image_url,
+        image_attribution
       };
 
       const ok = await upsertByUrl_NoIndex(row);
