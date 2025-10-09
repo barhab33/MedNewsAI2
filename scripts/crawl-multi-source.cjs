@@ -292,6 +292,45 @@ async function fetchHtml(url) {
     return await r.text();
   } catch { return null; }
 }
+
+function extractArticleContent(html, url) {
+  if (!html) return null;
+
+  const metaDesc = html.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["'][^>]*>/i);
+  const ogDesc = html.match(/<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']+)["'][^>]*>/i);
+  const description = ogDesc?.[1] || metaDesc?.[1] || '';
+
+  const articleTags = [
+    /<article[^>]*>([\s\S]*?)<\/article>/i,
+    /<div[^>]*class=["'][^"']*article[^"']*["'][^>]*>([\s\S]*?)<\/div>/i,
+    /<div[^>]*class=["'][^"']*content[^"']*["'][^>]*>([\s\S]*?)<\/div>/i,
+    /<main[^>]*>([\s\S]*?)<\/main>/i
+  ];
+
+  let content = '';
+  for (const regex of articleTags) {
+    const match = html.match(regex);
+    if (match && match[1]) {
+      content = match[1];
+      break;
+    }
+  }
+
+  if (!content) return stripHtml(description);
+
+  const paragraphs = content.match(/<p[^>]*>[\s\S]*?<\/p>/gi) || [];
+  let text = paragraphs
+    .map(p => stripHtml(p))
+    .filter(p => p.length > 50 && !p.match(/cookie|privacy policy|subscribe|sign up|advertisement/i))
+    .slice(0, 8)
+    .join('\n\n');
+
+  if (text.length < 200 && description) {
+    text = stripHtml(description);
+  }
+
+  return text || null;
+}
 const absolutize = (base, maybe) => { try { return new URL(maybe, base).toString(); } catch { return ""; } };
 const looksLikeLogo = (u = "") => {
   const x = u.toLowerCase();
@@ -383,8 +422,21 @@ async function main() {
       const { image_url, image_attribution } = await discoverImageForArticle({ title: it.title, url: it.url });
 
       const cleanDescription = stripHtml(it.description || "");
-      const finalSummary = summary || cleanDescription || "";
-      const finalContent = summary || cleanDescription || "";
+      let finalSummary = summary || cleanDescription || "";
+      let finalContent = summary || "";
+
+      if (!summary && it.url) {
+        const actualUrl = await unwrapGoogleNews(it.url);
+        console.log(`  Fetching content from: ${actualUrl.substring(0, 60)}...`);
+        const html = await fetchHtml(actualUrl);
+        const extractedContent = extractArticleContent(html, actualUrl);
+        if (extractedContent && extractedContent.length > 200) {
+          finalContent = extractedContent;
+          finalSummary = extractedContent.substring(0, 300) + (extractedContent.length > 300 ? '...' : '');
+        } else {
+          finalContent = cleanDescription;
+        }
+      }
 
       const row = {
         title: it.title || "(untitled)",
