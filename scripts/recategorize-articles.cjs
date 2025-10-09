@@ -4,7 +4,7 @@
  */
 
 require("dotenv").config();
-const { sb: Bolt Database } = require("./lib/Bolt Database-server.cjs");
+const { sb } = require("./lib/supabase-server.cjs");
 
 function inferCategoryFromKeywords(title, description) {
   const text = `${title} ${description}`.toLowerCase();
@@ -24,7 +24,7 @@ function inferCategoryFromKeywords(title, description) {
 async function recategorizeArticles() {
   console.log("Fetching articles from database...");
 
-  const { data: articles, error } = await Bolt Database
+  const { data: articles, error } = await sb
     .from("medical_news")
     .select("id, title, summary, category")
     .order("published_at", { ascending: false });
@@ -46,7 +46,7 @@ async function recategorizeArticles() {
       console.log(`\nUpdating: ${article.title.substring(0, 60)}...`);
       console.log(`  Old: ${article.category} → New: ${newCategory}`);
 
-      const { error: updateError } = await Bolt Database
+      const { error: updateError } = await sb
         .from("medical_news")
         .update({ category: newCategory })
         .eq("id", article.id);
