@@ -60,7 +60,7 @@ jobs:
             echo "No crawler found at scripts/crawl-supabase.cjs — skipping."
           fi
 
-                - name: Recategorize existing articles
+      - name: Recategorize existing articles
         shell: bash
         run: |
           set -e
