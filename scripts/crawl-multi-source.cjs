@@ -32,7 +32,7 @@ const MAX_CANDIDATES = 120;
 const TAKE_TOP = 10;
 const ORDER_CANDIDATES = ["published_at", "created_at", "inserted_at", "date", "id"];
 
-const GEMINI_MODEL = "models/gemini-1.5-flash";
+const GEMINI_MODEL = "gemini-pro";
 const GEMINI_KEY = process.env.GEMINI_API_KEY || "";
 const PEXELS_KEY = process.env.PEXELS_API_KEY || "";
 
@@ -219,7 +219,7 @@ async function pruneToNewest(limit = 10) {
   if (selErr) { console.error("prune select error:", selErr); return; }
   const keepIds = (keepRows || []).map((r) => r.id);
   if (keepIds.length === 0) return;
-  const { error: delErr } = await supabase.from("medical_news").delete().not("id", "in", keepIds);
+  const { error: delErr } = await supabase.from("medical_news").delete().not("id", "in", `(${keepIds.join(",")})`);
   if (delErr) console.error("prune delete error:", delErr);
   else console.log(`Pruned table to newest ${keepIds.length} rows (ordered by ${orderCol}).`);
 }
@@ -253,7 +253,7 @@ async function dedupeByUrlInDb() {
 // ------------------ Summarization & images ------------------
 async function geminiSummarize({ title, description, url }) {
   if (!GEMINI_KEY) return null;
-  const base = "https://generativelanguage.googleapis.com/v1beta";
+  const base = "https://generativelanguage.googleapis.com/v1/models";
   const endpoint = `${base}/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(GEMINI_KEY)}`;
   const prompt = `You are an assistant creating concise, neutral summaries of Medical/Health AI news.
 Write 2–3 short bullet points (plain text; no markdown bullets) with core finding, context, and any caveats.
