@@ -216,13 +216,13 @@ async function dedupeByUrlInDb() {
   const orderCol = await pickOrderColumn();
   const { data, error } = await supabase
     .from("medical_news")
-    .select("id,url,published_at,created_at")
+    .select("id,source_url,published_at,created_at")
     .order(orderCol, { ascending: false })
     .limit(200);
   if (error) { console.error("dedupe select error:", error); return; }
   const byUrl = new Map();
   for (const r of data || []) {
-    const url = r.url || "";
+    const url = r.source_url || "";
     if (!url) continue;
     const ts = Date.parse(r.published_at || r.created_at || 0) || 0;
     const prev = byUrl.get(url);
@@ -235,7 +235,7 @@ async function dedupeByUrlInDb() {
   if (dupes.length === 0) { console.log("De-dup: nothing to remove."); return; }
   const { error: delErr } = await supabase.from("medical_news").delete().in("id", dupes);
   if (delErr) console.error("De-dup delete error:", delErr);
-  else console.log(`De-dup: removed ${dupes.length} older duplicate row(s) by url.`);
+  else console.log(`De-dup: removed ${dupes.length} older duplicate row(s) by source_url.`);
 }
 
 // ------------------ Summarization & images ------------------
@@ -337,7 +337,7 @@ async function discoverImageForArticle({ title, url }) {
 
 // ------------------ Write helpers (no unique index required) ------------------
 async function upsertByUrl_NoIndex(row) {
-  const { data: existing, error: selErr } = await supabase.from("medical_news").select("id").eq("url", row.url).limit(1);
+  const { data: existing, error: selErr } = await supabase.from("medical_news").select("id").eq("source_url", row.source_url).limit(1);
   if (selErr) { console.error("select existing error:", selErr); return false; }
   if (existing && existing.length) {
     const id = existing[0].id;
@@ -373,15 +373,17 @@ async function main() {
       const row = {
         title: it.title || "(untitled)",
         summary: summary || it.description || "",
-        url: it.url,
+        content: summary || it.description || "",
+        source_url: it.url,
         source: it.source || hostnameOf(it.url) || "",
+        original_source: it.source || hostnameOf(it.url) || "Unknown",
+        category: "Medical AI",
         published_at: it.pubDate ? new Date(it.pubDate).toISOString() : new Date().toISOString(),
-        image_url,
-        image_attribution
+        image_url
       };
 
       const ok = await upsertByUrl_NoIndex(row);
-      if (ok) { wrote++; console.log(`+ Wrote: ${row.title.slice(0, 100)} — ${row.url}`); }
+      if (ok) { wrote++; console.log(`+ Wrote: ${row.title.slice(0, 100)} — ${row.source_url}`); }
       await sleep(90);
     } catch (e) {
       console.error("Item error:", it.url, e.message || e);
