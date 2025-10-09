@@ -21,7 +21,7 @@ jobs:
       VITE_BOLTDATABASE_URL: ${{ secrets.VITE_BOLTDATABASE_URL }}
       VITE_BOLTDATABASE_ANON_KEY: ${{ secrets.VITE_BOLTDATABASE_ANON_KEY }}
       # If any script WRITES to DB (insert/update), include the service role:
-      Bolt Database_SERVICE_ROLE: ${{ secrets.Bolt Database_SERVICE_ROLE }}
+      SUPABASE_SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE }}
       # AI keys if your crawler uses them:
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
