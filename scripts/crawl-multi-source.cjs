@@ -285,6 +285,50 @@ Link: ${url}`;
   }
 }
 
+async function geminiCategorize({ title, description }) {
+  if (!GEMINI_KEY) return "Medical AI";
+  const base = "https://generativelanguage.googleapis.com/v1/models";
+  const endpoint = `${base}/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(GEMINI_KEY)}`;
+  const categories = [
+    "Drug Discovery",
+    "Surgery",
+    "Research",
+    "Clinical Trials",
+    "Diagnostics",
+    "Medical Imaging",
+    "Patient Care",
+    "Genomics",
+    "Telemedicine"
+  ];
+  const prompt = `Categorize this medical AI article into ONE of these categories:
+${categories.join(", ")}
+
+Title: ${title}
+
+Content: ${description.substring(0, 1000)}
+
+Respond with ONLY the category name, nothing else.`;
+  const body = {
+    contents: [{ role: "user", parts: [{ text: prompt }] }],
+    generationConfig: { temperature: 0.1, maxOutputTokens: 50 }
+  };
+  try {
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    if (!res.ok) throw new Error(`Gemini ${res.status}: ${await res.text()}`);
+    const json = await res.json();
+    const text = json?.candidates?.[0]?.content?.parts?.map((p) => p.text).join(" ").trim();
+    const matched = categories.find(c => text.includes(c));
+    return matched || "Research";
+  } catch (e) {
+    console.error("Gemini categorize error:", e.message || e);
+    return "Research";
+  }
+}
+
 async function fetchHtml(url) {
   try {
     const r = await fetch(url, { headers: { "user-agent": "MedNewsAI/1.0 (+https://mednewsai.com)" } });
@@ -342,19 +386,37 @@ function extractOgImage(html, baseUrl) {
     /<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["'][^>]*>/i,
     /<meta[^>]+name=["']og:image["'][^>]+content=["']([^"']+)["'][^>]*>/i,
     /<meta[^>]+name=["']twitter:image["'][^>]+content=["']([^"']+)["'][^>]*>/i,
+    /<meta[^>]+property=["']twitter:image["'][^>]+content=["']([^"']+)["'][^>]*>/i,
     /<link[^>]+rel=["']image_src["'][^>]+href=["']([^"']+)["'][^>]*>/i
   ];
   for (const re of metas) {
     const m = html.match(re);
     if (m && m[1]) {
       const abs = absolutize(baseUrl, m[1].trim());
-      if (abs && !looksLikeLogo(abs) && abs.startsWith("http")) return abs;
+      if (abs && !looksLikeLogo(abs) && abs.startsWith("http")) {
+        const lowerAbs = abs.toLowerCase();
+        if (!lowerAbs.includes('default') && !lowerAbs.includes('placeholder') && abs.length > 50) {
+          return abs;
+        }
+      }
     }
   }
-  const im = html.match(/<img[^>]+src=["']([^"']+)["']/i);
-  if (im && im[1]) {
-    const abs = absolutize(baseUrl, im[1].trim());
-    if (abs && !looksLikeLogo(abs) && abs.startsWith("http")) return abs;
+  const imgs = html.match(/<img[^>]+src=["']([^"']+)["'][^>]*>/gi) || [];
+  for (const imgTag of imgs.slice(0, 10)) {
+    const m = imgTag.match(/src=["']([^"']+)["']/);
+    if (m && m[1]) {
+      const abs = absolutize(baseUrl, m[1].trim());
+      if (abs && !looksLikeLogo(abs) && abs.startsWith("http")) {
+        const lowerAbs = abs.toLowerCase();
+        if (!lowerAbs.includes('default') && !lowerAbs.includes('placeholder') && abs.length > 50) {
+          const width = imgTag.match(/width=["']?(\d+)/i);
+          const height = imgTag.match(/height=["']?(\d+)/i);
+          if (width && height && parseInt(width[1]) > 200 && parseInt(height[1]) > 200) {
+            return abs;
+          }
+        }
+      }
+    }
   }
   return "";
 }
@@ -426,13 +488,18 @@ async function main() {
       const cleanDescription = stripHtml(it.description || "");
       const contentForSummary = extractedContent || cleanDescription || it.title;
 
-      const summary = await geminiSummarize({
-        title: it.title,
-        description: contentForSummary.substring(0, 2000),
-        url: actualUrl
-      });
-
-      const { image_url, image_attribution } = await discoverImageForArticle({ title: it.title, url: actualUrl });
+      const [summary, category, { image_url, image_attribution }] = await Promise.all([
+        geminiSummarize({
+          title: it.title,
+          description: contentForSummary.substring(0, 2000),
+          url: actualUrl
+        }),
+        geminiCategorize({
+          title: it.title,
+          description: contentForSummary.substring(0, 1500)
+        }),
+        discoverImageForArticle({ title: it.title, url: actualUrl })
+      ]);
 
       let finalSummary = summary || cleanDescription || it.title;
       let finalContent = extractedContent || summary || cleanDescription || it.title;
@@ -449,7 +516,7 @@ async function main() {
         source_url: it.url,
         source: it.source || hostnameOf(it.url) || "",
         original_source: it.source || hostnameOf(it.url) || "Unknown",
-        category: "Medical AI",
+        category: category || "Research",
         published_at: it.pubDate ? new Date(it.pubDate).toISOString() : new Date().toISOString(),
         image_url
       };
