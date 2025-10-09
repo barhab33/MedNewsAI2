@@ -286,7 +286,7 @@ Link: ${url}`;
 }
 
 async function geminiCategorize({ title, description }) {
-  if (!GEMINI_KEY) return "Medical AI";
+  if (!GEMINI_KEY) return inferCategoryFromKeywords(title, description);
   const base = "https://generativelanguage.googleapis.com/v1/models";
   const endpoint = `${base}/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(GEMINI_KEY)}`;
   const categories = [
@@ -300,17 +300,27 @@ async function geminiCategorize({ title, description }) {
     "Genomics",
     "Telemedicine"
   ];
-  const prompt = `Categorize this medical AI article into ONE of these categories:
-${categories.join(", ")}
+  const prompt = `You are a medical news classifier. Categorize this article into EXACTLY ONE category.
 
-Title: ${title}
+CATEGORIES:
+- Drug Discovery: drug development, pharmaceuticals, molecular design
+- Surgery: surgical procedures, robotic surgery, surgical planning
+- Research: general medical research, studies, scientific findings
+- Clinical Trials: patient trials, trial recruitment, trial design
+- Diagnostics: disease detection, screening, diagnostic tools
+- Medical Imaging: radiology, MRI, CT scans, X-ray, ultrasound
+- Patient Care: hospital operations, patient management, nursing, bedside care
+- Genomics: DNA, genetics, gene therapy, personalized medicine
+- Telemedicine: remote care, virtual visits, telehealth
 
-Content: ${description.substring(0, 1000)}
+Article Title: ${title}
 
-Respond with ONLY the category name, nothing else.`;
+Article Content: ${description.substring(0, 1000)}
+
+Respond with ONLY ONE category name from the list above. No explanation.`;
   const body = {
     contents: [{ role: "user", parts: [{ text: prompt }] }],
-    generationConfig: { temperature: 0.1, maxOutputTokens: 50 }
+    generationConfig: { temperature: 0.0, maxOutputTokens: 30 }
   };
   try {
     const res = await fetch(endpoint, {
@@ -321,12 +331,27 @@ Respond with ONLY the category name, nothing else.`;
     if (!res.ok) throw new Error(`Gemini ${res.status}: ${await res.text()}`);
     const json = await res.json();
     const text = json?.candidates?.[0]?.content?.parts?.map((p) => p.text).join(" ").trim();
-    const matched = categories.find(c => text.includes(c));
-    return matched || "Research";
+    const matched = categories.find(c => text.toLowerCase().includes(c.toLowerCase()));
+    return matched || inferCategoryFromKeywords(title, description);
   } catch (e) {
     console.error("Gemini categorize error:", e.message || e);
-    return "Research";
+    return inferCategoryFromKeywords(title, description);
   }
+}
+
+function inferCategoryFromKeywords(title, description) {
+  const text = `${title} ${description}`.toLowerCase();
+
+  if (/\b(drug|pharma|molecule|compound|therapeut|medication)\b/.test(text)) return "Drug Discovery";
+  if (/\b(surgery|surgical|operation|robotic surg)\b/.test(text)) return "Surgery";
+  if (/\b(trial|clinic[^\s]*\s+trial|patient enrollment|randomized)\b/.test(text)) return "Clinical Trials";
+  if (/\b(diagnos|detect|screen|biomarker|early detection)\b/.test(text)) return "Diagnostics";
+  if (/\b(imaging|radiology|mri|ct scan|x-ray|ultrasound|scan)\b/.test(text)) return "Medical Imaging";
+  if (/\b(patient care|hospital|nursing|bedside|icu|emergency|ed triage)\b/.test(text)) return "Patient Care";
+  if (/\b(genom|dna|gene|genetic|crispr|sequenc)\b/.test(text)) return "Genomics";
+  if (/\b(telemedicine|telehealth|remote|virtual visit|video consult)\b/.test(text)) return "Telemedicine";
+
+  return "Research";
 }
 
 async function fetchHtml(url) {
