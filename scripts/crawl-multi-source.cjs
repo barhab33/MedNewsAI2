@@ -38,7 +38,19 @@ const PEXELS_KEY = process.env.PEXELS_API_KEY || "";
 
 // ------------------ Helpers ------------------
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const stripHtml = (s = "") => s.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+const decodeHtmlEntities = (s = "") => {
+  return s
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, " ");
+};
+const stripHtml = (s = "") => {
+  const decoded = decodeHtmlEntities(s);
+  return decoded.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+};
 
 function normalizeUrl(raw) {
   try {
@@ -370,10 +382,14 @@ async function main() {
       const summary = await geminiSummarize({ title: it.title, description: it.description, url: it.url });
       const { image_url, image_attribution } = await discoverImageForArticle({ title: it.title, url: it.url });
 
+      const cleanDescription = stripHtml(it.description || "");
+      const finalSummary = summary || cleanDescription || "";
+      const finalContent = summary || cleanDescription || "";
+
       const row = {
         title: it.title || "(untitled)",
-        summary: summary || it.description || "",
-        content: summary || it.description || "",
+        summary: finalSummary,
+        content: finalContent,
         source_url: it.url,
         source: it.source || hostnameOf(it.url) || "",
         original_source: it.source || hostnameOf(it.url) || "Unknown",
