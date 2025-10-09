@@ -9,11 +9,14 @@ export default function Header() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center h-16">
           <div className="flex items-center space-x-2">
-            <img
-              src="/VmrBcGvj_400x400.jpg"
-              alt="MedNewsAI Logo"
-              className="w-8 h-8 rounded-md flex-shrink-0"
-            />
+            <div className="w-10 h-10 overflow-hidden rounded-md flex-shrink-0">
+              <img
+                src="/VmrBcGvj_400x400.jpg"
+                alt="MedNewsAI Logo"
+                className="w-full scale-150"
+                style={{ marginTop: '-20%' }}
+              />
+            </div>
             <h1 className="text-lg font-bold text-gray-900 py-2">MedNewsAI</h1>
           </div>
 
