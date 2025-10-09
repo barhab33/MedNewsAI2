@@ -10,9 +10,9 @@ export default function Header() {
         <div className="flex justify-between items-center h-16">
           <div className="flex items-center space-x-2">
             <img
-              src="/VmrBcGvj_400x400.jpg"
+              src="/Untitled.png"
               alt="MedNewsAI Logo"
-              className="w-10 h-10 object-cover object-top rounded-md flex-shrink-0"
+              className="w-10 h-10 rounded-md flex-shrink-0"
             />
             <h1 className="text-lg font-bold text-gray-900 py-2">MedNewsAI</h1>
           </div>
