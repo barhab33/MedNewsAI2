@@ -418,24 +418,28 @@ async function main() {
   let wrote = 0;
   for (const it of batch) {
     try {
-      const summary = await geminiSummarize({ title: it.title, description: it.description, url: it.url });
-      const { image_url, image_attribution } = await discoverImageForArticle({ title: it.title, url: it.url });
+      const actualUrl = await unwrapGoogleNews(it.url);
+      console.log(`  Fetching content from: ${actualUrl.substring(0, 60)}...`);
+      const html = await fetchHtml(actualUrl);
+      const extractedContent = extractArticleContent(html, actualUrl);
 
       const cleanDescription = stripHtml(it.description || "");
-      let finalSummary = summary || cleanDescription || "";
-      let finalContent = summary || "";
+      const contentForSummary = extractedContent || cleanDescription || it.title;
 
-      if (!summary && it.url) {
-        const actualUrl = await unwrapGoogleNews(it.url);
-        console.log(`  Fetching content from: ${actualUrl.substring(0, 60)}...`);
-        const html = await fetchHtml(actualUrl);
-        const extractedContent = extractArticleContent(html, actualUrl);
-        if (extractedContent && extractedContent.length > 200) {
-          finalContent = extractedContent;
-          finalSummary = extractedContent.substring(0, 300) + (extractedContent.length > 300 ? '...' : '');
-        } else {
-          finalContent = cleanDescription;
-        }
+      const summary = await geminiSummarize({
+        title: it.title,
+        description: contentForSummary.substring(0, 2000),
+        url: actualUrl
+      });
+
+      const { image_url, image_attribution } = await discoverImageForArticle({ title: it.title, url: actualUrl });
+
+      let finalSummary = summary || cleanDescription || it.title;
+      let finalContent = extractedContent || summary || cleanDescription || it.title;
+
+      if (finalContent.length < 100) {
+        finalContent = `${it.title}\n\n${cleanDescription || 'No additional content available.'}`;
+        finalSummary = cleanDescription || it.title;
       }
 
       const row = {
