@@ -60,6 +60,17 @@ jobs:
             echo "No crawler found at scripts/crawl-supabase.cjs — skipping."
           fi
 
+                - name: Recategorize existing articles
+        shell: bash
+        run: |
+          set -e
+          if [ -f scripts/recategorize-articles.cjs ]; then
+            echo "Recategorizing existing articles..."
+            node scripts/recategorize-articles.cjs
+          else
+            echo "No recategorize script found — skipping."
+          fi
+
       - name: Export to public (root or scripts/)
         shell: bash
         run: |
