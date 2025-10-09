@@ -420,26 +420,57 @@ function extractOgImage(html, baseUrl) {
   }
   return "";
 }
-async function discoverImageForArticle({ title, url }) {
+async function discoverImageForArticle({ title, url, category }) {
   const html = await fetchHtml(url);
   const og = extractOgImage(html || "", url);
   if (og) return { image_url: og, image_attribution: "" };
 
   if (PEXELS_KEY) {
     try {
-      const q = encodeURIComponent((title || "").replace(/[:\-–|]/g, " ").slice(0, 60) + " medical AI");
-      const api = `https://api.pexels.com/v1/search?query=${q}&per_page=1`;
-      const res = await fetch(api, { headers: { Authorization: PEXELS_KEY } });
-      if (res.ok) {
-        const json = await res.json();
-        const photo = json.photos?.[0];
-        if (photo?.src?.large) {
-          return {
-            image_url: photo.src.large,
-            image_attribution: `Photo: ${photo.photographer || "Pexels"} / Pexels (${photo.url || "https://www.pexels.com"})`
-          };
+      const categoryMap = {
+        "Drug Discovery": "laboratory research microscope",
+        "Surgery": "surgery medical operation",
+        "Research": "medical research laboratory",
+        "Clinical Trials": "clinical trial medical test",
+        "Diagnostics": "medical diagnosis doctor",
+        "Medical Imaging": "medical imaging xray mri",
+        "Patient Care": "doctor patient hospital care",
+        "Genomics": "dna genetics laboratory",
+        "Telemedicine": "telemedicine doctor video call"
+      };
+
+      const categoryTerm = categoryMap[category] || "medical healthcare";
+      const searchTerms = [
+        `${categoryTerm} technology`,
+        `medical healthcare professional`,
+        `hospital medical equipment`
+      ];
+
+      for (const searchTerm of searchTerms) {
+        const q = encodeURIComponent(searchTerm);
+        const api = `https://api.pexels.com/v1/search?query=${q}&per_page=5`;
+        const res = await fetch(api, { headers: { Authorization: PEXELS_KEY } });
+
+        if (res.ok) {
+          const json = await res.json();
+          const photos = json.photos || [];
+
+          for (const photo of photos) {
+            const alt = (photo.alt || "").toLowerCase();
+            const hasFlag = alt.includes("flag") || alt.includes("israel") || alt.includes("political");
+            const hasUnrelated = alt.includes("fashion") || alt.includes("model") || alt.includes("beauty");
+
+            if (!hasFlag && !hasUnrelated && photo?.src?.large) {
+              return {
+                image_url: photo.src.large,
+                image_attribution: `Photo: ${photo.photographer || "Pexels"} / Pexels (${photo.url || "https://www.pexels.com"})`
+              };
+            }
+          }
         }
-      } else console.warn("Pexels error:", res.status);
+      }
+
+      console.warn("No suitable Pexels image found after filtering");
     } catch (e) {
       console.warn("Pexels fetch failed:", e.message || e);
     }
@@ -488,7 +519,7 @@ async function main() {
       const cleanDescription = stripHtml(it.description || "");
       const contentForSummary = extractedContent || cleanDescription || it.title;
 
-      const [summary, category, { image_url, image_attribution }] = await Promise.all([
+      const [summary, category] = await Promise.all([
         geminiSummarize({
           title: it.title,
           description: contentForSummary.substring(0, 2000),
@@ -497,9 +528,14 @@ async function main() {
         geminiCategorize({
           title: it.title,
           description: contentForSummary.substring(0, 1500)
-        }),
-        discoverImageForArticle({ title: it.title, url: actualUrl })
+        })
       ]);
+
+      const { image_url, image_attribution } = await discoverImageForArticle({
+        title: it.title,
+        url: actualUrl,
+        category: category || "Research"
+      });
 
       let finalSummary = summary || cleanDescription || it.title;
       let finalContent = extractedContent || summary || cleanDescription || it.title;
