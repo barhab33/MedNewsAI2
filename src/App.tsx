@@ -68,9 +68,12 @@ function App() {
           selectedCategory={selectedCategory}
           onSelectCategory={handleCategorySelect}
         />
-        <RecentSpotlight />
+        <RecentSpotlight onArticleClick={setSelectedArticle} />
         <div ref={newsFeedRef}>
-          <NewsFeed selectedCategory={selectedCategory} />
+          <NewsFeed
+            selectedCategory={selectedCategory}
+            onArticleClick={setSelectedArticle}
+          />
         </div>
         <Newsletter />
         <Contact />

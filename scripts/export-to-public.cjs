@@ -52,19 +52,35 @@ async function main() {
   const rows = await fetchTop10();
 
   const items = rows.map((it) => {
+    const id = it.id || "";
     const title = pick(it, ["title", "headline", "name"], "");
     const summary = pick(it, ["summary", "abstract", "description", "ai_summary", "gemini_summary"], "");
-    const url = pick(it, ["url", "link", "article_url", "source_url", "canonical_url"], "");
+    const content = pick(it, ["content", "body", "text", "article_text"], "");
+    const category = pick(it, ["category", "tag", "section"], "Medical AI");
+    const url = pick(it, ["source_url", "url", "link", "article_url", "canonical_url"], "");
     let source = pick(it, ["source", "site", "publisher", "domain"], "");
+    const original_source = pick(it, ["original_source", "source", "site"], "");
     const publishedAt = pick(it, ["published_at", "publishedAt", "pub_date", "date", "created_at", "inserted_at"], null) || null;
     const imageUrl = pick(it, ["image_url", "imageUrl", "image", "thumbnail", "thumb", "cover"], "");
-    const imageAttribution = pick(it, ["image_attribution", "attribution", "image_credit", "credit"], "");
+    const created_at = pick(it, ["created_at", "createdAt", "inserted_at"], null) || null;
 
     if (!source && url) {
       try { source = new URL(url).hostname.replace(/^www\./, ""); } catch {}
     }
 
-    return { title, summary, url, source, publishedAt, imageUrl, imageAttribution };
+    return {
+      id,
+      title,
+      summary,
+      content,
+      category,
+      source_url: url,
+      source,
+      original_source,
+      published_at: publishedAt,
+      image_url: imageUrl,
+      created_at
+    };
   });
 
   const feedPath = path.join(OUT_DIR, "feed.json");

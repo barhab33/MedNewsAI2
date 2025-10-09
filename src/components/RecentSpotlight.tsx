@@ -3,7 +3,11 @@ import { Clock, ArrowRight } from 'lucide-react';
 import type { MedicalNews } from '../types';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
-export default function RecentSpotlight() {
+interface RecentSpotlightProps {
+  onArticleClick?: (article: MedicalNews) => void;
+}
+
+export default function RecentSpotlight({ onArticleClick }: RecentSpotlightProps) {
   const [recentArticles, setRecentArticles] = useState<MedicalNews[]>([]);
 
   useEffect(() => {
@@ -25,7 +29,7 @@ export default function RecentSpotlight() {
         }
       }
 
-      const response = await fetch('/news-data.json');
+      const response = await fetch('/feed.json');
       if (response.ok) {
         const data = await response.json();
         setRecentArticles(data.slice(0, 3));
@@ -69,7 +73,8 @@ export default function RecentSpotlight() {
           {recentArticles.map((article) => (
             <div
               key={article.id}
-              className="group bg-gradient-to-br from-gray-50 to-white border border-gray-200 rounded-xl overflow-hidden hover:shadow-xl transition-all duration-300 hover:-translate-y-1"
+              onClick={() => onArticleClick?.(article)}
+              className="group bg-gradient-to-br from-gray-50 to-white border border-gray-200 rounded-xl overflow-hidden hover:shadow-xl transition-all duration-300 hover:-translate-y-1 cursor-pointer"
             >
               <div className="relative h-48 overflow-hidden bg-gradient-to-br from-teal-100 to-blue-100">
                 {article.image_url ? (

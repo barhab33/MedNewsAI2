@@ -9,13 +9,13 @@ import SidebarAd from './SidebarAd';
 
 interface NewsFeedProps {
   selectedCategory: MedicalCategory;
+  onArticleClick?: (article: MedicalNews) => void;
 }
 
-export default function NewsFeed({ selectedCategory }: NewsFeedProps) {
+export default function NewsFeed({ selectedCategory, onArticleClick }: NewsFeedProps) {
   const [news, setNews] = useState<MedicalNews[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedArticle, setSelectedArticle] = useState<MedicalNews | null>(null);
 
   useEffect(() => {
     fetchNews();
@@ -26,14 +26,29 @@ export default function NewsFeed({ selectedCategory }: NewsFeedProps) {
       setIsLoading(true);
       setError(null);
 
-      const response = await fetch('/news-data.json');
+      if (isSupabaseConfigured) {
+        const { data, error } = await supabase
+          .from('medical_news')
+          .select('*')
+          .order('published_at', { ascending: false })
+          .limit(50);
+
+        if (!error && data && data.length > 0) {
+          console.log('Loaded', data.length, 'articles from Supabase');
+          setNews(data);
+          setIsLoading(false);
+          return;
+        }
+      }
+
+      const response = await fetch('/feed.json');
 
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
       const data = await response.json();
-      console.log('Loaded', data.length, 'articles from /news-data.json');
+      console.log('Loaded', data.length, 'articles from /feed.json');
       setNews(data || []);
       setIsLoading(false);
     } catch (err) {
@@ -99,7 +114,7 @@ export default function NewsFeed({ selectedCategory }: NewsFeedProps) {
                     </div>
                     <article
                       className="bg-white rounded-b-xl rounded-tr-xl shadow-xl overflow-hidden border-2 border-teal-600 cursor-pointer hover:shadow-2xl transition-shadow duration-300"
-                      onClick={() => setSelectedArticle(featuredArticle)}
+                      onClick={() => onArticleClick?.(featuredArticle)}
                     >
                       <div className="grid md:grid-cols-2 gap-6">
                         <div className="relative h-64 md:h-full overflow-hidden bg-gradient-to-br from-teal-50 to-teal-100">
@@ -143,7 +158,7 @@ export default function NewsFeed({ selectedCategory }: NewsFeedProps) {
                       <NewsCard
                         key={newsItem.id}
                         news={newsItem}
-                        onClick={() => setSelectedArticle(newsItem)}
+                        onClick={() => onArticleClick?.(newsItem)}
                       />
                       {(index + 1) % 6 === 0 && (
                         <InFeedAd key={`ad-${index}`} />
@@ -152,13 +167,6 @@ export default function NewsFeed({ selectedCategory }: NewsFeedProps) {
                   ))}
                 </div>
               </>
-            )}
-
-            {selectedArticle && (
-              <ArticleModal
-                article={selectedArticle}
-                onClose={() => setSelectedArticle(null)}
-              />
             )}
 
             {!isLoading && filteredNews.length === 0 && !error && (
