@@ -12,7 +12,7 @@ export default function Header() {
             <img
               src="/Untitled.png"
               alt="MedNewsAI Logo"
-              className="w-10 h-10 rounded-md flex-shrink-0"
+              className="w-8 h-8 rounded-md flex-shrink-0"
             />
             <h1 className="text-lg font-bold text-gray-900 py-2">MedNewsAI</h1>
           </div>
