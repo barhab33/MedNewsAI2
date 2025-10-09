@@ -54,8 +54,8 @@ async function unwrapGoogleNews(url) {
 
 // ---------- Column detection (uses response.error, not exceptions) ----------
 async function hasColumn(col) {
-  // Use a HEAD-like select and inspect the returned error object
-  const { error } = await supabase.from(TABLE).select(`id,${col}`, { head: true }).limit(1);
+  // Use a simple select and inspect the returned error object
+  const { error } = await supabase.from(TABLE).select(col).limit(1);
   if (!error) return true;
   if (error.code === "42703") return false; // undefined_column
   // Any other error we treat as "unknown but assume column exists" so we don't block
