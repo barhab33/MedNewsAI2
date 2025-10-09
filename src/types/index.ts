@@ -8,6 +8,7 @@ export interface MedicalNews {
   source_url: string;
   original_source: string;
   image_url: string;
+  image_attribution?: string;
   published_at: string;
   created_at: string;
   updated_at?: string;

@@ -62,6 +62,7 @@ async function main() {
     const original_source = pick(it, ["original_source", "source", "site"], "");
     const publishedAt = pick(it, ["published_at", "publishedAt", "pub_date", "date", "created_at", "inserted_at"], null) || null;
     const imageUrl = pick(it, ["image_url", "imageUrl", "image", "thumbnail", "thumb", "cover"], "");
+    const imageAttribution = pick(it, ["image_attribution", "imageAttribution", "photo_credit"], "");
     const created_at = pick(it, ["created_at", "createdAt", "inserted_at"], null) || null;
 
     if (!source && url) {
@@ -79,6 +80,7 @@ async function main() {
       original_source,
       published_at: publishedAt,
       image_url: imageUrl,
+      image_attribution: imageAttribution,
       created_at
     };
   });

@@ -105,6 +105,11 @@ export default function ArticleModal({ article, onClose }: ArticleModalProps) {
             className="w-full h-full object-cover"
           />
           <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+          {article.image_attribution && (
+            <div className="absolute top-4 right-4 bg-black/60 text-white text-xs px-3 py-1 rounded backdrop-blur-sm">
+              {article.image_attribution}
+            </div>
+          )}
           <div className="absolute bottom-0 left-0 right-0 p-8 text-white">
             <div className="flex items-center gap-3 mb-4">
               <span className="inline-flex items-center px-3 py-1 bg-white/20 backdrop-blur-sm text-white text-sm font-semibold rounded-full">

@@ -39,15 +39,22 @@ export default function NewsCard({ news, onClick }: NewsCardProps) {
             <ImageOff className="w-16 h-16 text-teal-300" />
           </div>
         ) : (
-          <img
-            src={`${news.image_url}?auto=compress&cs=tinysrgb&w=600&h=400&fit=crop`}
-            alt={news.title}
-            loading="lazy"
-            decoding="async"
-            onError={() => setImageError(true)}
-            className="w-full h-full object-cover"
-            itemProp="image"
-          />
+          <>
+            <img
+              src={`${news.image_url}?auto=compress&cs=tinysrgb&w=600&h=400&fit=crop`}
+              alt={news.title}
+              loading="lazy"
+              decoding="async"
+              onError={() => setImageError(true)}
+              className="w-full h-full object-cover"
+              itemProp="image"
+            />
+            {news.image_attribution && (
+              <div className="absolute bottom-0 right-0 bg-black/60 text-white text-[9px] px-1.5 py-0.5 backdrop-blur-sm">
+                {news.image_attribution}
+              </div>
+            )}
+          </>
         )}
       </div>
 

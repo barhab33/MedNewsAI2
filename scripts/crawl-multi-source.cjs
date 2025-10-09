@@ -405,8 +405,35 @@ const looksLikeLogo = (u = "") => {
   const x = u.toLowerCase();
   return x.includes("logo") || x.includes("sprite") || x.includes("icon") || x.endsWith(".svg");
 };
+
+function extractImageAttribution(html, imageUrl) {
+  if (!html || !imageUrl) return "";
+
+  const imgFileName = imageUrl.split('/').pop().split('?')[0];
+  const patterns = [
+    new RegExp(`<figcaption[^>]*>([^<]+(?:<[^>]+>[^<]*</[^>]+>[^<]*)*)</figcaption>`, 'i'),
+    new RegExp(`<div[^>]*class=["'][^"']*(?:caption|credit|byline|attribution|photo-credit)[^"']*["'][^>]*>([^<]+(?:<[^>]+>[^<]*</[^>]+>[^<]*)*)</div>`, 'i'),
+    new RegExp(`<span[^>]*class=["'][^"']*(?:caption|credit|byline|attribution|photo-credit)[^"']*["'][^>]*>([^<]+(?:<[^>]+>[^<]*</[^>]+>[^<]*)*)</span>`, 'i'),
+    /<meta[^>]+property=["']article:author["'][^>]+content=["']([^"']+)["'][^>]*>/i,
+    /<meta[^>]+name=["']author["'][^>]+content=["']([^"']+)["'][^>]*>/i
+  ];
+
+  for (const pattern of patterns) {
+    const match = html.match(pattern);
+    if (match && match[1]) {
+      const credit = stripHtml(match[1].trim());
+      if (credit && credit.length > 3 && credit.length < 200) {
+        return credit;
+      }
+    }
+  }
+
+  return "";
+}
+
 function extractOgImage(html, baseUrl) {
-  if (!html) return "";
+  if (!html) return { url: "", attribution: "" };
+
   const metas = [
     /<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["'][^>]*>/i,
     /<meta[^>]+name=["']og:image["'][^>]+content=["']([^"']+)["'][^>]*>/i,
@@ -414,6 +441,7 @@ function extractOgImage(html, baseUrl) {
     /<meta[^>]+property=["']twitter:image["'][^>]+content=["']([^"']+)["'][^>]*>/i,
     /<link[^>]+rel=["']image_src["'][^>]+href=["']([^"']+)["'][^>]*>/i
   ];
+
   for (const re of metas) {
     const m = html.match(re);
     if (m && m[1]) {
@@ -421,13 +449,58 @@ function extractOgImage(html, baseUrl) {
       if (abs && !looksLikeLogo(abs) && abs.startsWith("http")) {
         const lowerAbs = abs.toLowerCase();
         if (!lowerAbs.includes('default') && !lowerAbs.includes('placeholder') && abs.length > 50) {
-          return abs;
+          const attribution = extractImageAttribution(html, abs);
+          return { url: abs, attribution };
         }
       }
     }
   }
-  const imgs = html.match(/<img[^>]+src=["']([^"']+)["'][^>]*>/gi) || [];
-  for (const imgTag of imgs.slice(0, 10)) {
+
+  const articlePatterns = [
+    /<article[^>]*>([\s\S]*?)<\/article>/i,
+    /<div[^>]*class=["'][^"']*(?:article-content|post-content|entry-content)[^"']*["'][^>]*>([\s\S]*?)<\/div>/i,
+    /<main[^>]*>([\s\S]*?)<\/main>/i
+  ];
+
+  let articleContent = html;
+  for (const pattern of articlePatterns) {
+    const match = html.match(pattern);
+    if (match && match[1]) {
+      articleContent = match[1];
+      break;
+    }
+  }
+
+  const figurePattern = /<figure[^>]*class=["'][^"']*(?:featured|hero|lead|main)[^"']*["'][^>]*>([\s\S]*?)<\/figure>/i;
+  const figureMatch = articleContent.match(figurePattern);
+  if (figureMatch) {
+    const imgMatch = figureMatch[1].match(/<img[^>]+src=["']([^"']+)["'][^>]*>/);
+    const captionMatch = figureMatch[1].match(/<figcaption[^>]*>([\s\S]*?)<\/figcaption>/);
+    if (imgMatch && imgMatch[1]) {
+      const abs = absolutize(baseUrl, imgMatch[1].trim());
+      if (abs && !looksLikeLogo(abs) && abs.startsWith("http")) {
+        const attribution = captionMatch ? stripHtml(captionMatch[1].trim()) : extractImageAttribution(html, abs);
+        return { url: abs, attribution: attribution || "" };
+      }
+    }
+  }
+
+  const imgs = articleContent.match(/<img[^>]+src=["']([^"']+)["'][^>]*>/gi) || [];
+  for (const imgTag of imgs.slice(0, 15)) {
+    const classMatch = imgTag.match(/class=["']([^"']*)["']/);
+    const className = classMatch ? classMatch[1].toLowerCase() : "";
+
+    if (className.includes("featured") || className.includes("hero") || className.includes("lead") || className.includes("main")) {
+      const m = imgTag.match(/src=["']([^"']+)["']/);
+      if (m && m[1]) {
+        const abs = absolutize(baseUrl, m[1].trim());
+        if (abs && !looksLikeLogo(abs) && abs.startsWith("http")) {
+          const attribution = extractImageAttribution(html, abs);
+          return { url: abs, attribution: attribution || "" };
+        }
+      }
+    }
+
     const m = imgTag.match(/src=["']([^"']+)["']/);
     if (m && m[1]) {
       const abs = absolutize(baseUrl, m[1].trim());
@@ -436,19 +509,27 @@ function extractOgImage(html, baseUrl) {
         if (!lowerAbs.includes('default') && !lowerAbs.includes('placeholder') && abs.length > 50) {
           const width = imgTag.match(/width=["']?(\d+)/i);
           const height = imgTag.match(/height=["']?(\d+)/i);
-          if (width && height && parseInt(width[1]) > 200 && parseInt(height[1]) > 200) {
-            return abs;
+          if (width && height && parseInt(width[1]) > 300 && parseInt(height[1]) > 200) {
+            const attribution = extractImageAttribution(html, abs);
+            return { url: abs, attribution: attribution || "" };
           }
         }
       }
     }
   }
-  return "";
+
+  return { url: "", attribution: "" };
 }
 async function discoverImageForArticle({ title, url, category }) {
   const html = await fetchHtml(url);
-  const og = extractOgImage(html || "", url);
-  if (og) return { image_url: og, image_attribution: "" };
+  const imageData = extractOgImage(html || "", url);
+  if (imageData.url) {
+    const hostname = hostnameOf(url);
+    const attribution = imageData.attribution ?
+      `${imageData.attribution} (via ${hostname})` :
+      `Image via ${hostname}`;
+    return { image_url: imageData.url, image_attribution: attribution };
+  }
 
   if (PEXELS_KEY) {
     try {
