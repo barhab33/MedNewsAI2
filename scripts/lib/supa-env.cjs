@@ -1,6 +1,8 @@
 // Maps SUPABASE_* lookups to your existing BOLTDATABASE / Vite(Bolt) names.
 // This lets you keep Bolt-style secret names while code can ask for SUPABASE_*.
 
+require("dotenv").config();
+
 function get(name) {
   // 1) Exact name first (server secrets)
   if (process.env[name]) return process.env[name];
