@@ -5,42 +5,38 @@ const { createClient } = require('@supabase/supabase-js');
 
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE || process.env.VITE_SUPABASE_ANON_KEY;
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+
+if (!SUPABASE_URL || !SUPABASE_KEY) {
+  console.error('ERROR: Missing Supabase credentials!');
+  console.error('Required: VITE_SUPABASE_URL and SUPABASE_SERVICE_ROLE');
+  process.exit(1);
+}
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 const MEDICAL_AI_SOURCES = [
   {
-    name: 'Nature Medicine',
-    rssUrl: 'https://www.nature.com/nm.rss',
-    priority: 10
-  },
-  {
-    name: 'Google News - Medical AI',
-    searchQuery: 'artificial intelligence medical diagnosis treatment',
+    name: 'Google News - AI Healthcare',
+    searchQuery: 'artificial intelligence healthcare medical diagnosis treatment',
     priority: 8
   },
   {
-    name: 'Google News - AI Healthcare',
-    searchQuery: 'AI healthcare breakthrough radiology surgery',
+    name: 'Google News - Medical AI Breakthrough',
+    searchQuery: 'AI breakthrough medicine radiology surgery drug discovery',
     priority: 8
   }
 ];
 
-const CATEGORIES = [
-  'Diagnostics',
-  'Surgery',
-  'Drug Discovery',
-  'Patient Care',
-  'Medical Imaging',
-  'Clinical Decision Support',
-  'Genomics',
-  'Public Health',
-  'Other'
+const STOCK_IMAGES = [
+  'https://images.pexels.com/photos/3825517/pexels-photo-3825517.jpeg',
+  'https://images.pexels.com/photos/356040/pexels-photo-356040.jpeg',
+  'https://images.pexels.com/photos/4386466/pexels-photo-4386466.jpeg',
+  'https://images.pexels.com/photos/8376277/pexels-photo-8376277.jpeg',
+  'https://images.pexels.com/photos/4226263/pexels-photo-4226263.jpeg'
 ];
 
 async function searchGoogleNews(query) {
-  console.log(`Searching Google News for: ${query}`);
+  console.log(`\nSearching: ${query}`);
   try {
     const url = `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=en-US&gl=US&ceid=US:en`;
     const response = await axios.get(url, { timeout: 10000 });
@@ -48,166 +44,142 @@ async function searchGoogleNews(query) {
 
     const articles = [];
     $('item').each((_, item) => {
-      const title = $(item).find('title').text();
-      const link = $(item).find('link').text();
-      const pubDate = $(item).find('pubDate').text();
-      const description = $(item).find('description').text();
+      const title = $(item).find('title').text().trim();
+      const link = $(item).find('link').text().trim();
+      const pubDate = $(item).find('pubDate').text().trim();
+      const description = $(item).find('description').text().trim();
 
+      const lowerText = (title + ' ' + description).toLowerCase();
       if (title && link && (
-        title.toLowerCase().includes('ai') ||
-        title.toLowerCase().includes('artificial intelligence') ||
-        title.toLowerCase().includes('machine learning') ||
-        description.toLowerCase().includes('ai') ||
-        description.toLowerCase().includes('artificial intelligence')
+        lowerText.includes('ai') ||
+        lowerText.includes('artificial intelligence') ||
+        lowerText.includes('machine learning')
       )) {
         articles.push({
-          title,
+          title: title.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim(),
           url: link,
-          source: 'Google News',
-          description,
+          description: description.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim(),
           published_at: pubDate ? new Date(pubDate).toISOString() : new Date().toISOString(),
-          priority: 7
+          source: extractSource(description) || 'Google News'
         });
       }
     });
 
-    console.log(`Found ${articles.length} articles from Google News`);
+    console.log(`  Found ${articles.length} articles`);
     return articles;
   } catch (error) {
-    console.error('Error searching Google News:', error.message);
+    console.error(`  Error: ${error.message}`);
     return [];
   }
 }
 
-async function fetchRSS(url, sourceName, priority) {
-  console.log(`Fetching RSS from ${sourceName}...`);
-  try {
-    const response = await axios.get(url, { timeout: 10000 });
-    const $ = cheerio.load(response.data, { xmlMode: true });
-
-    const articles = [];
-    $('item').each((_, item) => {
-      const title = $(item).find('title').text();
-      const link = $(item).find('link').text();
-      const pubDate = $(item).find('pubDate').text() || $(item).find('published').text();
-      const description = $(item).find('description').text() || $(item).find('summary').text();
-
-      if (title && link) {
-        articles.push({
-          title,
-          url: link,
-          source: sourceName,
-          description,
-          published_at: pubDate ? new Date(pubDate).toISOString() : new Date().toISOString(),
-          priority
-        });
-      }
-    });
-
-    console.log(`Found ${articles.length} articles from ${sourceName}`);
-    return articles;
-  } catch (error) {
-    console.error(`Error fetching RSS from ${sourceName}:`, error.message);
-    return [];
-  }
+function extractSource(description) {
+  const match = description.match(/<a[^>]*>([^<]+)<\/a>/);
+  return match ? match[1].trim() : null;
 }
 
-async function scrapeWebPage(url, sourceName, priority) {
-  console.log(`Scraping ${sourceName}...`);
-  try {
-    const response = await axios.get(url, {
-      timeout: 10000,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-      }
-    });
-    const $ = cheerio.load(response.data);
+async function gatherArticles() {
+  console.log('='.repeat(60));
+  console.log('Gathering Medical AI News');
+  console.log('='.repeat(60));
 
-    const articles = [];
-
-    $('article, .article, [class*="article"], [class*="post"]').each((_, element) => {
-      const $article = $(element);
-      const titleEl = $article.find('h1, h2, h3, .title, [class*="title"]').first();
-      const linkEl = $article.find('a[href]').first();
-      const descEl = $article.find('p, .description, [class*="description"], .summary').first();
-      const dateEl = $article.find('time, .date, [class*="date"]').first();
-
-      const title = titleEl.text().trim();
-      let link = linkEl.attr('href');
-      const description = descEl.text().trim();
-      const dateStr = dateEl.attr('datetime') || dateEl.text().trim();
-
-      if (link && !link.startsWith('http')) {
-        const base = new URL(url);
-        link = base.origin + (link.startsWith('/') ? link : '/' + link);
-      }
-
-      if (title && link && title.length > 10) {
-        articles.push({
-          title,
-          url: link,
-          source: sourceName,
-          description,
-          published_at: dateStr ? new Date(dateStr).toISOString() : new Date().toISOString(),
-          priority
-        });
-      }
-    });
-
-    console.log(`Found ${articles.length} articles from ${sourceName}`);
-    return articles;
-  } catch (error) {
-    console.error(`Error scraping ${sourceName}:`, error.message);
-    return [];
-  }
-}
-
-async function gatherAllArticles() {
-  console.log('\n=== Gathering articles from all sources ===\n');
   const allArticles = [];
 
   for (const source of MEDICAL_AI_SOURCES) {
-    if (source.rssUrl) {
-      const articles = await fetchRSS(source.rssUrl, source.name, source.priority);
-      allArticles.push(...articles);
-    } else if (source.searchQuery) {
+    if (source.searchQuery) {
       const articles = await searchGoogleNews(source.searchQuery);
-      allArticles.push(...articles);
-    } else if (source.url) {
-      const articles = await scrapeWebPage(source.url, source.name, source.priority);
-      allArticles.push(...articles);
+      allArticles.push(...articles.map(a => ({ ...a, priority: source.priority })));
+      await new Promise(resolve => setTimeout(resolve, 2000));
     }
-
-    await new Promise(resolve => setTimeout(resolve, 2000));
   }
 
-  console.log(`\nTotal articles gathered: ${allArticles.length}`);
+  console.log(`\nTotal gathered: ${allArticles.length} articles`);
   return allArticles;
 }
 
 function selectTop15(articles) {
-  console.log('\n=== Selecting top 15 articles ===\n');
+  console.log('\n' + '='.repeat(60));
+  console.log('Selecting Top 15 Articles');
+  console.log('='.repeat(60));
 
   const uniqueArticles = Array.from(
     new Map(articles.map(a => [a.url, a])).values()
   );
 
-  const scored = uniqueArticles.map(article => ({
-    ...article,
-    score: article.priority + (new Date(article.published_at) > new Date(Date.now() - 7*24*60*60*1000) ? 5 : 0)
-  }));
+  const scored = uniqueArticles.map(article => {
+    const recencyBonus = new Date(article.published_at) > new Date(Date.now() - 7*24*60*60*1000) ? 5 : 0;
+    return {
+      ...article,
+      score: article.priority + recencyBonus
+    };
+  });
 
   scored.sort((a, b) => b.score - a.score);
-
   const top15 = scored.slice(0, 15);
-  console.log(`Selected ${top15.length} articles`);
+
+  console.log(`Selected ${top15.length} articles\n`);
   return top15;
 }
 
-async function scrapeArticleContent(url) {
+function createSummary(article) {
+  let summary = article.description || '';
+
+  summary = summary.replace(/<[^>]*>/g, '');
+  summary = summary.replace(/&nbsp;/g, ' ');
+  summary = summary.replace(/&amp;/g, '&');
+  summary = summary.replace(/&quot;/g, '"');
+  summary = summary.replace(/&#39;/g, "'");
+  summary = summary.replace(/\s+/g, ' ');
+  summary = summary.trim();
+
+  if (summary.length < 100) {
+    const category = categorizeArticle(article);
+    const generalDescriptions = {
+      'Diagnostics': 'This article discusses how artificial intelligence is being used to improve medical diagnosis, enabling earlier detection and more accurate identification of diseases.',
+      'Surgery': 'This article explores the use of AI and robotics in surgical procedures, improving precision and patient outcomes.',
+      'Drug Discovery': 'This article covers how AI is accelerating drug discovery and development, helping identify new therapeutic compounds faster.',
+      'Patient Care': 'This article examines how AI is enhancing patient care and treatment strategies in healthcare.',
+      'Medical Imaging': 'This article discusses AI applications in medical imaging, improving the accuracy of radiology and diagnostic imaging.',
+      'Clinical Decision Support': 'This article explores how AI is supporting clinical decision-making and improving healthcare workflows.',
+      'Genomics': 'This article covers AI applications in genomics and personalized medicine.',
+      'Public Health': 'This article discusses how AI is being used to improve public health outcomes and disease surveillance.'
+    };
+
+    summary = generalDescriptions[category] ||
+              'This article discusses the latest developments in artificial intelligence applications in medicine and healthcare.';
+  }
+
+  if (summary.length > 500) {
+    summary = summary.slice(0, 500);
+    const lastPeriod = summary.lastIndexOf('.');
+    if (lastPeriod > 300) {
+      summary = summary.slice(0, lastPeriod + 1);
+    } else {
+      summary = summary.slice(0, 500) + '...';
+    }
+  }
+
+  return summary;
+}
+
+function categorizeArticle(article) {
+  const text = `${article.title} ${article.description || ''}`.toLowerCase();
+
+  if (text.includes('diagnos') || text.includes('detect') || text.includes('screening')) return 'Diagnostics';
+  if (text.includes('surgery') || text.includes('surgical') || text.includes('robot')) return 'Surgery';
+  if (text.includes('drug') || text.includes('pharmaceutical') || text.includes('molecule')) return 'Drug Discovery';
+  if (text.includes('treatment') || text.includes('therapy') || text.includes('patient')) return 'Patient Care';
+  if (text.includes('imaging') || text.includes('mri') || text.includes('ct') || text.includes('x-ray') || text.includes('radiology')) return 'Medical Imaging';
+  if (text.includes('clinical') || text.includes('ehr') || text.includes('electronic health')) return 'Clinical Decision Support';
+  if (text.includes('genom') || text.includes('dna') || text.includes('gene')) return 'Genomics';
+  if (text.includes('public health') || text.includes('epidemic') || text.includes('population')) return 'Public Health';
+
+  return 'Diagnostics';
+}
+
+async function findImage(article) {
   try {
-    console.log('  Fetching article body...');
-    const response = await axios.get(url, {
+    const response = await axios.get(article.url, {
       timeout: 8000,
       maxRedirects: 3,
       headers: {
@@ -217,170 +189,45 @@ async function scrapeArticleContent(url) {
 
     const $ = cheerio.load(response.data);
 
-    $('script, style, nav, header, footer, aside, .advertisement, .ad, .social-share').remove();
-
-    const paragraphs = [];
-    $('article p, .article p, .content p, .post-content p, main p').each((_, el) => {
-      const text = $(el).text().trim();
-      if (text.length > 50 && paragraphs.length < 5) {
-        paragraphs.push(text);
-      }
-    });
-
-    if (paragraphs.length > 0) {
-      console.log(`  Found ${paragraphs.length} paragraphs`);
-      return paragraphs.join('\\n\\n');
-    }
-
-    console.log('  No content found, will use description');
-    return '';
-  } catch (error) {
-    console.log('  Scraping failed:', error.message);
-    return '';
-  }
-}
-
-async function summarizeWithGemini(article, fullContent) {
-  console.log(`  Summarizing: ${article.title.slice(0, 60)}...`);
-
-  const contentToSummarize = fullContent || article.description || '';
-
-  if (!contentToSummarize || contentToSummarize.length < 50) {
-    console.log('  Using title only (no content available)');
-    return `${article.title} - Full article available at source.`;
-  }
-
-  if (!GEMINI_API_KEY || GEMINI_API_KEY.length < 20) {
-    console.log('  No valid Gemini key, using content excerpt');
-    const excerpt = contentToSummarize.slice(0, 300);
-    return excerpt + (contentToSummarize.length > 300 ? '...' : '');
-  }
-
-  try {
-    const prompt = `Summarize this medical AI news article in 2-3 sentences. Focus on the key innovation and its medical impact:
-
-Title: ${article.title}
-Content: ${contentToSummarize.slice(0, 2000)}
-
-Provide only the summary, no preamble.`;
-
-    const response = await axios.post(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`,
-      {
-        contents: [{
-          parts: [{ text: prompt }]
-        }]
-      },
-      { timeout: 20000 }
-    );
-
-    const summary = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (summary && summary.length > 50) {
-      console.log('  ✓ Got AI summary');
-      return summary.trim();
-    }
-  } catch (error) {
-    console.log('  Gemini failed, using excerpt');
-  }
-
-  const excerpt = contentToSummarize.slice(0, 300);
-  return excerpt + (contentToSummarize.length > 300 ? '...' : '');
-}
-
-function categorizeMedicalAI(article) {
-  const text = `${article.title} ${article.description || ''}`.toLowerCase();
-
-  if (text.includes('diagnos') || text.includes('detect') || text.includes('screening')) return 'Diagnostics';
-  if (text.includes('surgery') || text.includes('surgical') || text.includes('robot')) return 'Surgery';
-  if (text.includes('drug') || text.includes('pharmaceutical') || text.includes('molecule')) return 'Drug Discovery';
-  if (text.includes('patient care') || text.includes('treatment') || text.includes('therapy')) return 'Patient Care';
-  if (text.includes('imaging') || text.includes('mri') || text.includes('ct scan') || text.includes('x-ray') || text.includes('radiology')) return 'Medical Imaging';
-  if (text.includes('clinical decision') || text.includes('ehr') || text.includes('electronic health')) return 'Clinical Decision Support';
-  if (text.includes('genom') || text.includes('dna') || text.includes('gene') || text.includes('sequencing')) return 'Genomics';
-  if (text.includes('public health') || text.includes('epidemic') || text.includes('population')) return 'Public Health';
-
-  return 'Other';
-}
-
-async function findImageForArticle(article) {
-  console.log(`Finding image for: ${article.title.slice(0, 50)}...`);
-
-  try {
-    const response = await axios.get(article.url, {
-      timeout: 10000,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-      }
-    });
-
-    const $ = cheerio.load(response.data);
-
     const ogImage = $('meta[property="og:image"]').attr('content');
-    if (ogImage) {
-      console.log('Found og:image');
+    if (ogImage && ogImage.startsWith('http')) {
       return ogImage;
     }
 
     const twitterImage = $('meta[name="twitter:image"]').attr('content');
-    if (twitterImage) {
-      console.log('Found twitter:image');
+    if (twitterImage && twitterImage.startsWith('http')) {
       return twitterImage;
     }
-
-    const firstImg = $('article img, .article img, .content img').first().attr('src');
-    if (firstImg) {
-      if (!firstImg.startsWith('http')) {
-        const base = new URL(article.url);
-        return base.origin + (firstImg.startsWith('/') ? firstImg : '/' + firstImg);
-      }
-      console.log('Found article image');
-      return firstImg;
-    }
   } catch (error) {
-    console.log('Could not fetch image from article');
   }
 
-  const stockImages = [
-    'https://images.pexels.com/photos/3825517/pexels-photo-3825517.jpeg',
-    'https://images.pexels.com/photos/356040/pexels-photo-356040.jpeg',
-    'https://images.pexels.com/photos/4386466/pexels-photo-4386466.jpeg',
-    'https://images.pexels.com/photos/8376277/pexels-photo-8376277.jpeg',
-    'https://images.pexels.com/photos/4226263/pexels-photo-4226263.jpeg'
-  ];
-
-  const randomImage = stockImages[Math.floor(Math.random() * stockImages.length)];
-  console.log('Using stock image');
-  return randomImage;
+  return STOCK_IMAGES[Math.floor(Math.random() * STOCK_IMAGES.length)];
 }
 
 async function saveToSupabase(articles) {
-  console.log('\n=== Saving to Supabase ===\n');
+  console.log('='.repeat(60));
+  console.log('Saving to Supabase');
+  console.log('='.repeat(60) + '\n');
 
   const { data: existing } = await supabase
     .from('medical_news')
     .select('source_url');
 
   const existingUrls = new Set(existing?.map(e => e.source_url) || []);
-
   let saved = 0;
+  let skipped = 0;
 
   for (const article of articles) {
     if (existingUrls.has(article.url)) {
-      console.log(`Skipping duplicate: ${article.title.slice(0, 50)}...`);
+      skipped++;
       continue;
     }
 
-    console.log(`Scraping content from: ${article.url.slice(0, 60)}...`);
-    const fullContent = await scrapeArticleContent(article.url);
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    const summary = createSummary(article);
+    const category = categorizeArticle(article);
+    const image_url = await findImage(article);
 
-    const summary = await summarizeWithGemini(article, fullContent);
-    await new Promise(resolve => setTimeout(resolve, 1000));
-
-    const image_url = await findImageForArticle(article);
-    await new Promise(resolve => setTimeout(resolve, 1000));
-
-    const category = categorizeMedicalAI(article);
+    console.log(`[${saved + 1}/${articles.length}] ${article.title.slice(0, 60)}...`);
 
     const { error } = await supabase
       .from('medical_news')
@@ -397,18 +244,22 @@ async function saveToSupabase(articles) {
       });
 
     if (error) {
-      console.error(`Error saving article: ${error.message}`);
+      console.error(`  ERROR: ${error.message}`);
     } else {
       saved++;
-      console.log(`✓ Saved: ${article.title.slice(0, 60)}...`);
+      console.log(`  ✓ Saved`);
     }
+
+    await new Promise(resolve => setTimeout(resolve, 1000));
   }
 
-  console.log(`\nSaved ${saved} new articles to database`);
+  console.log(`\nResults: ${saved} saved, ${skipped} skipped\n`);
 }
 
-async function cleanupOldArticles() {
-  console.log('\n=== Cleaning up old articles ===\n');
+async function cleanupOld() {
+  console.log('='.repeat(60));
+  console.log('Cleanup');
+  console.log('='.repeat(60) + '\n');
 
   const { data } = await supabase
     .from('medical_news')
@@ -423,33 +274,36 @@ async function cleanupOldArticles() {
       .in('id', toDelete);
 
     if (!error) {
-      console.log(`Deleted ${toDelete.length} old articles`);
+      console.log(`Deleted ${toDelete.length} old articles\n`);
     }
   } else {
-    console.log('No cleanup needed');
+    console.log('No cleanup needed\n');
   }
 }
 
 async function main() {
-  console.log('='.repeat(60));
-  console.log('Medical AI News Crawler');
-  console.log('='.repeat(60));
-
   try {
-    const allArticles = await gatherAllArticles();
+    const allArticles = await gatherArticles();
+
+    if (allArticles.length === 0) {
+      console.error('ERROR: No articles found!');
+      process.exit(1);
+    }
+
     const top15 = selectTop15(allArticles);
     await saveToSupabase(top15);
-    await cleanupOldArticles();
+    await cleanupOld();
 
-    console.log('\n✓ Crawler completed successfully!');
+    console.log('='.repeat(60));
+    console.log('✓ Crawler Completed Successfully');
+    console.log('='.repeat(60));
   } catch (error) {
-    console.error('\n✗ Crawler failed:', error);
+    console.error('\n' + '='.repeat(60));
+    console.error('✗ CRAWLER FAILED');
+    console.error('='.repeat(60));
+    console.error(error);
     process.exit(1);
   }
 }
 
-if (require.main === module) {
-  main();
-}
-
-module.exports = { main };
+main();
