@@ -16,29 +16,14 @@ const MEDICAL_AI_SOURCES = [
     priority: 10
   },
   {
-    name: 'The Lancet Digital Health',
-    url: 'https://www.thelancet.com/journals/landig/issue/current',
-    priority: 10
-  },
-  {
-    name: 'NEJM AI',
-    url: 'https://ai.nejm.org/',
-    priority: 10
-  },
-  {
-    name: 'MIT Technology Review - Health',
-    url: 'https://www.technologyreview.com/topic/biomedicine/',
-    priority: 9
-  },
-  {
-    name: 'Stanford HAI',
-    url: 'https://hai.stanford.edu/news?field_news_topics_target_id=57',
-    priority: 9
-  },
-  {
     name: 'Google News - Medical AI',
-    searchQuery: 'artificial intelligence medical OR healthcare OR diagnosis',
-    priority: 7
+    searchQuery: 'artificial intelligence medical diagnosis treatment',
+    priority: 8
+  },
+  {
+    name: 'Google News - AI Healthcare',
+    searchQuery: 'AI healthcare breakthrough radiology surgery',
+    priority: 8
   }
 ];
 
@@ -219,42 +204,87 @@ function selectTop15(articles) {
   return top15;
 }
 
-async function summarizeWithGemini(article) {
-  if (!GEMINI_API_KEY) {
-    console.warn('No Gemini API key, using original description');
-    return article.description || article.title;
+async function scrapeArticleContent(url) {
+  try {
+    console.log('  Fetching article body...');
+    const response = await axios.get(url, {
+      timeout: 8000,
+      maxRedirects: 3,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      }
+    });
+
+    const $ = cheerio.load(response.data);
+
+    $('script, style, nav, header, footer, aside, .advertisement, .ad, .social-share').remove();
+
+    const paragraphs = [];
+    $('article p, .article p, .content p, .post-content p, main p').each((_, el) => {
+      const text = $(el).text().trim();
+      if (text.length > 50 && paragraphs.length < 5) {
+        paragraphs.push(text);
+      }
+    });
+
+    if (paragraphs.length > 0) {
+      console.log(`  Found ${paragraphs.length} paragraphs`);
+      return paragraphs.join('\\n\\n');
+    }
+
+    console.log('  No content found, will use description');
+    return '';
+  } catch (error) {
+    console.log('  Scraping failed:', error.message);
+    return '';
+  }
+}
+
+async function summarizeWithGemini(article, fullContent) {
+  console.log(`  Summarizing: ${article.title.slice(0, 60)}...`);
+
+  const contentToSummarize = fullContent || article.description || '';
+
+  if (!contentToSummarize || contentToSummarize.length < 50) {
+    console.log('  Using title only (no content available)');
+    return `${article.title} - Full article available at source.`;
   }
 
-  console.log(`Summarizing: ${article.title.slice(0, 60)}...`);
+  if (!GEMINI_API_KEY || GEMINI_API_KEY.length < 20) {
+    console.log('  No valid Gemini key, using content excerpt');
+    const excerpt = contentToSummarize.slice(0, 300);
+    return excerpt + (contentToSummarize.length > 300 ? '...' : '');
+  }
 
   try {
     const prompt = `Summarize this medical AI news article in 2-3 sentences. Focus on the key innovation and its medical impact:
 
 Title: ${article.title}
-Description: ${article.description || ''}
+Content: ${contentToSummarize.slice(0, 2000)}
 
 Provide only the summary, no preamble.`;
 
     const response = await axios.post(
-      `https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent?key=${GEMINI_API_KEY}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`,
       {
         contents: [{
           parts: [{ text: prompt }]
         }]
       },
-      { timeout: 30000 }
+      { timeout: 20000 }
     );
 
     const summary = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (summary) {
+    if (summary && summary.length > 50) {
+      console.log('  ✓ Got AI summary');
       return summary.trim();
     }
-
-    return article.description || article.title;
   } catch (error) {
-    console.error('Gemini summarization error:', error.message);
-    return article.description || article.title;
+    console.log('  Gemini failed, using excerpt');
   }
+
+  const excerpt = contentToSummarize.slice(0, 300);
+  return excerpt + (contentToSummarize.length > 300 ? '...' : '');
 }
 
 function categorizeMedicalAI(article) {
@@ -340,7 +370,11 @@ async function saveToSupabase(articles) {
       continue;
     }
 
-    const summary = await summarizeWithGemini(article);
+    console.log(`Scraping content from: ${article.url.slice(0, 60)}...`);
+    const fullContent = await scrapeArticleContent(article.url);
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    const summary = await summarizeWithGemini(article, fullContent);
     await new Promise(resolve => setTimeout(resolve, 1000));
 
     const image_url = await findImageForArticle(article);
