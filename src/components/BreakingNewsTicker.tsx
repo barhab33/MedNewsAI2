@@ -12,6 +12,24 @@ export default function BreakingNewsTicker() {
 
   const fetchHeadlines = async () => {
     try {
+      if (isSupabaseConfigured) {
+        const { data, error } = await supabase
+          .from('medical_news')
+          .select('*')
+          .order('published_at', { ascending: false })
+          .limit(8);
+
+        if (!error && data && data.length > 0) {
+          const mappedData = data.map(article => ({
+            ...article,
+            summary: article.description || article.content || '',
+            original_source: article.source
+          }));
+          setHeadlines(mappedData);
+          return;
+        }
+      }
+
       const response = await fetch('/news-data.json');
       if (response.ok) {
         const data = await response.json();

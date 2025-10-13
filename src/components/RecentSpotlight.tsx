@@ -24,7 +24,12 @@ export default function RecentSpotlight({ onArticleClick }: RecentSpotlightProps
           .limit(3);
 
         if (!error && data && data.length > 0) {
-          setRecentArticles(data);
+          const mappedData = data.map(article => ({
+            ...article,
+            summary: article.description || article.content || '',
+            original_source: article.source
+          }));
+          setRecentArticles(mappedData);
           return;
         }
       }

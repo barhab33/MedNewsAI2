@@ -35,7 +35,12 @@ export default function NewsFeed({ selectedCategory, onArticleClick }: NewsFeedP
 
         if (!error && data && data.length > 0) {
           console.log('Loaded', data.length, 'articles from Supabase');
-          setNews(data);
+          const mappedData = data.map(article => ({
+            ...article,
+            summary: article.description || article.content || '',
+            original_source: article.source
+          }));
+          setNews(mappedData);
           setIsLoading(false);
           return;
         }
