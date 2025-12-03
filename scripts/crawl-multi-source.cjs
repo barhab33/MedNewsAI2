@@ -32,7 +32,7 @@ const MAX_CANDIDATES = 120;
 const TAKE_TOP = 10;
 const ORDER_CANDIDATES = ["published_at", "created_at", "inserted_at", "date", "id"];
 
-const GEMINI_MODEL = "gemini-pro";
+const GEMINI_MODEL = "gemini-1.5-flash";
 const GEMINI_KEY = process.env.GEMINI_API_KEY || "";
 const PEXELS_KEY = process.env.PEXELS_API_KEY || "";
 
