@@ -32,7 +32,7 @@ const MAX_CANDIDATES = 120;
 const TAKE_TOP = 10;
 const ORDER_CANDIDATES = ["published_at", "created_at", "inserted_at", "date", "id"];
 
-const GEMINI_MODEL = "gemini-1.5-flash";
+const GEMINI_MODEL = "gemini-2.0-flash";
 const GEMINI_KEY = process.env.GEMINI_API_KEY || "";
 const PEXELS_KEY = process.env.PEXELS_API_KEY || "";
 
@@ -127,8 +127,20 @@ async function fetchRss(url) {
 async function unwrapGoogleNews(url) {
   try {
     if (!isGoogleNewsLink(url)) return url;
-    const r = await fetch(url, { redirect: "follow", method: "HEAD" });
-    if (r.ok) return normalizeUrl(r.url || url);
+    const r = await fetch(url, { redirect: "follow" });
+    if (!r.ok) return normalizeUrl(url);
+    const html = await r.text();
+    const match = html.match(/<c-wiz[^>]*jsdata="[^"]*;([^;]+);/);
+    if (match && match[1]) {
+      try {
+        const decoded = Buffer.from(match[1], 'base64').toString('utf-8');
+        const urlMatch = decoded.match(/https?:\/\/[^\s"<>]+/);
+        if (urlMatch) return normalizeUrl(urlMatch[0]);
+      } catch {}
+    }
+    const metaMatch = html.match(/<meta[^>]+content=["']0;url=([^"']+)["']/i);
+    if (metaMatch && metaMatch[1]) return normalizeUrl(metaMatch[1]);
+    return normalizeUrl(r.url || url);
   } catch {}
   return normalizeUrl(url);
 }
