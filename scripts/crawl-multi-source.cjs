@@ -253,7 +253,7 @@ async function dedupeByUrlInDb() {
 // ------------------ Summarization & images ------------------
 async function geminiSummarize({ title, description, url }) {
   if (!GEMINI_KEY) return null;
-  const base = "https://generativelanguage.googleapis.com/v1/models";
+  const base = "https://generativelanguage.googleapis.com/v1beta/models";
   const endpoint = `${base}/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(GEMINI_KEY)}`;
   const prompt = `You are an assistant creating concise, neutral summaries of Medical/Health AI news.
 Write 2–3 short bullet points (plain text; no markdown bullets) with core finding, context, and any caveats.
@@ -287,7 +287,7 @@ Link: ${url}`;
 
 async function geminiCategorize({ title, description }) {
   if (!GEMINI_KEY) return inferCategoryFromKeywords(title, description);
-  const base = "https://generativelanguage.googleapis.com/v1/models";
+  const base = "https://generativelanguage.googleapis.com/v1beta/models";
   const endpoint = `${base}/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(GEMINI_KEY)}`;
   const categories = [
     "Drug Discovery",
