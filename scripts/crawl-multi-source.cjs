@@ -127,19 +127,40 @@ async function fetchRss(url) {
 async function unwrapGoogleNews(url) {
   try {
     if (!isGoogleNewsLink(url)) return url;
+
+    const articleIdMatch = url.match(/articles\/([\w-]+)/);
+    if (articleIdMatch) {
+      const directUrl = `https://news.google.com/articles/${articleIdMatch[1]}`;
+      const r = await fetch(directUrl, { redirect: "manual" });
+
+      if (r.status >= 300 && r.status < 400) {
+        const location = r.headers.get('location');
+        if (location && !isGoogleNewsLink(location)) {
+          return normalizeUrl(location);
+        }
+      }
+    }
+
     const r = await fetch(url, { redirect: "follow" });
     if (!r.ok) return normalizeUrl(url);
+
     const html = await r.text();
-    const match = html.match(/<c-wiz[^>]*jsdata="[^"]*;([^;]+);/);
-    if (match && match[1]) {
-      try {
-        const decoded = Buffer.from(match[1], 'base64').toString('utf-8');
-        const urlMatch = decoded.match(/https?:\/\/[^\s"<>]+/);
-        if (urlMatch) return normalizeUrl(urlMatch[0]);
-      } catch {}
+    const allUrls = html.match(/https?:\/\/[a-z0-9][a-z0-9\-]*[a-z0-9]\.[a-z]{2,}[^\s"<>)'}]*/gi) || [];
+
+    for (const foundUrl of allUrls) {
+      if (!foundUrl.includes('google') &&
+          !foundUrl.includes('gstatic') &&
+          !foundUrl.includes('youtube') &&
+          !foundUrl.includes('doubleclick') &&
+          (foundUrl.includes('emj.bmj.com') ||
+           foundUrl.includes('medicalxpress') ||
+           foundUrl.includes('auntminnie') ||
+           foundUrl.includes('hitconsultant') ||
+           foundUrl.includes('appliedclinicaltrialsonline'))) {
+        return normalizeUrl(foundUrl);
+      }
     }
-    const metaMatch = html.match(/<meta[^>]+content=["']0;url=([^"']+)["']/i);
-    if (metaMatch && metaMatch[1]) return normalizeUrl(metaMatch[1]);
+
     return normalizeUrl(r.url || url);
   } catch {}
   return normalizeUrl(url);
